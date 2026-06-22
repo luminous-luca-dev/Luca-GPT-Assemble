@@ -102,7 +102,12 @@ function setupInitialChat() {
             
             // Lucaのセリフもデータベースに永続化する
             await supabaseClient.from('chat_messages').insert([
-                { thread_id: currentThreadId, sender: 'luca', text: lucaGreeting }
+                { 
+                    thread_id: currentThreadId, 
+                    sender: 'luca', 
+                    text: lucaGreeting,
+                    is_auto_reply: true // ★ここを追加！
+                }
             ]);
             
             appendMessageToTimeline('luca', lucaGreeting);
