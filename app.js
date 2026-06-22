@@ -4,187 +4,242 @@ const SUPABASE_ANON_KEY = 'sb_publishable_HzbTleN2spmfwE8neINPKw_TxHP80ob';
 // 名前が衝突しないように修正
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const mainContent = document.getElementById('main-content');
-const headerTitle = document.getElementById('header-title');
+const timeline = document.getElementById('chat-timeline');
+const messageInput = document.getElementById('message-input');
+const sendBtn = document.getElementById('send-btn');
+const urlBanner = document.getElementById('url-banner');
+const shareUrlInput = document.getElementById('share-url');
+const copyBtn = document.getElementById('copy-btn');
+const roomNameLabel = document.querySelector('.room-name');
 
-// URLパラメータを読み取って画面を判断
 const urlParams = new URLSearchParams(window.location.search);
-const currentId = urlParams.get('id');
-const isAdmin = urlParams.get('admin') === 'true'; 
+let currentThreadId = urlParams.get('id');
+const isAdmin = urlParams.get('admin') === 'true';
 
-// 画面の初期化
-function init() {
+// 起動時の初期化
+async function init() {
     if (isAdmin) {
         renderAdminScreen();
-    } else if (currentId) {
-        renderStatusScreen(currentId);
+    } else if (currentThreadId) {
+        // すでにURL（トーク部屋）を持っている場合
+        showURLBanner(currentThreadId);
+        await loadChatHistory(currentThreadId);
+        setupActiveChat();
     } else {
-        renderSendScreen();
+        // 初めてアクセスした状態（最初の1通目を待つ）
+        setupInitialChat();
     }
 }
 
-// 1. 送信画面
-function renderSendScreen() {
-    headerTitle.textContent = 'メッセージを送る';
-    mainContent.innerHTML = `
-        <div class="notice-box">
-            <p>匿名で何でもメッセージを送ってください。<br>頂いた内容はLuca-GPTの学習に役立てます。</p>
-        </div>
-        <textarea id="messageInput" placeholder="ここにメッセージを入力..."></textarea>
-        <button id="sendBtn">送信する</button>
-    `;
+// タイムラインの最下部へスクロール
+function scrollToBottom() {
+    timeline.scrollTop = timeline.scrollHeight;
+}
 
-    document.getElementById('sendBtn').addEventListener('click', async () => {
-        const text = document.getElementById('messageInput').value;
-        if (!text.trim()) return;
+// メッセージを画面に描画する
+function appendMessageToTimeline(sender, text) {
+    const row = document.createElement('div');
+    row.className = `msg-row ${sender}`;
+    row.innerHTML = `<div class="msg-bubble">${escapeHTML(text)}</div>`;
+    timeline.appendChild(row);
+    scrollToBottom();
+}
 
-        const btn = document.getElementById('sendBtn');
-        btn.textContent = '送信中...';
-        btn.disabled = true;
+// URLバナーを表示する関数
+function showURLBanner(id) {
+    const baseUrl = window.location.href.split('?')[0];
+    shareUrlInput.value = `${baseUrl}?id=${id}`;
+    urlBanner.classList.remove('hidden');
+}
 
-        const { data, error } = await supabaseClient
-            .from('messages')
-            .insert([{ message: text }])
+// コピーボタンの制御
+copyBtn.addEventListener('click', () => {
+    shareUrlInput.select();
+    document.execCommand('copy');
+    copyBtn.innerHTML = `<i class="fa-solid fa-check"></i> 完了`;
+    setTimeout(() => {
+        copyBtn.innerHTML = `<i class="fa-regular fa-copy"></i> コピー`;
+    }, 2000);
+});
+
+/* -----------------------------------------
+   A. はじめて送る時の設定
+----------------------------------------- */
+function setupInitialChat() {
+    sendBtn.addEventListener('click', async () => {
+        const text = messageInput.value.trim();
+        if (!text) return;
+
+        messageInput.value = '';
+        sendBtn.disabled = true;
+
+        // 1. トークルーム（スレッド）を新規作成
+        const { data: threadData, error: tError } = await supabaseClient
+            .from('threads')
+            .insert([{}])
             .select();
 
-        if (error || !data || data.length === 0) {
-            alert('通信がうまくいきませんでした。時間をおいてやり直してください。');
-            btn.textContent = '送信する';
-            btn.disabled = false;
+        if (tError || !threadData) {
+            alert('接続に失敗しました。');
+            sendBtn.disabled = false;
             return;
         }
 
-        renderCompleteScreen(data[0].id);
+        currentThreadId = threadData[0].id;
+
+        // 2. ユーザーのメッセージを保存
+        await supabaseClient.from('chat_messages').insert([
+            { thread_id: currentThreadId, sender: 'user', text: text }
+        ]);
+
+        // 3. 画面上の演出
+        showURLBanner(currentThreadId);
+        appendMessageToTimeline('user', text);
+
+        // 4. Lucaからの自動返信演出（1秒後にシュッと登場）
+        setTimeout(async () => {
+            const lucaGreeting = "メッセージありがとう！！助かる～\n返事するからURLコピーしておいて";
+            
+            // Lucaのセリフもデータベースに永続化する
+            await supabaseClient.from('chat_messages').insert([
+                { 
+                    thread_id: currentThreadId, 
+                    sender: 'luca', 
+                    text: lucaGreeting,
+                    is_auto_reply: true // ★ここを追加！
+                }
+            ]);
+            
+            appendMessageToTimeline('luca', lucaGreeting);
+            
+            // 以降は重ねて送れるモードに移行
+            setupActiveChat();
+        }, 1000);
     });
 }
 
-// 2. 送信完了画面（専用リンクの発行）
-function renderCompleteScreen(id) {
-    headerTitle.textContent = '送信完了';
+/* -----------------------------------------
+   B. 2回目以降、またはURLから開いた時の設定
+----------------------------------------- */
+async function loadChatHistory(id) {
+    timeline.innerHTML = '';
+    const { data, error } = await supabaseClient
+        .from('chat_messages')
+        .select('*')
+        .eq('thread_id', id)
+        .order('created_at', { ascending: true });
+
+    if (error) return;
+
+    data.forEach(msg => {
+        appendMessageToTimeline(msg.sender, msg.text);
+    });
+}
+
+function setupActiveChat() {
+    sendBtn.disabled = false;
     
-    const currentUrl = window.location.href.split('?')[0];
-    const personalLink = `${currentUrl}?id=${id}`;
+    // 古いイベントリスナーをクリアするために新しくボタンを置き換え
+    const newSendBtn = sendBtn.cloneNode(true);
+    sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
 
-    mainContent.innerHTML = `
-        <div class="notice-box">
-            <h3>ありがとうございます！</h3>
-            <p>メッセージを受け取りました。お返事をお待ちください。</p>
-        </div>
-        <p>以下のURLがあなた専用の確認リンクです。メモ帳などに保存してください。</p>
-        <input type="text" id="linkInput" class="link-input" value="${personalLink}" readonly>
-        <button id="copyBtn">URLをコピーする</button>
-        <br><br>
-        <button onclick="window.location.href='${currentUrl}'" style="background-color:#7f8c8d;">新しく送る</button>
-    `;
+    newSendBtn.addEventListener('click', async () => {
+        const text = messageInput.value.trim();
+        if (!text) return;
 
-    document.getElementById('copyBtn').addEventListener('click', () => {
-        const linkInput = document.getElementById('linkInput');
-        linkInput.select();
-        document.execCommand('copy');
-        document.getElementById('copyBtn').textContent = 'コピーしました！';
+        messageInput.value = '';
+        appendMessageToTimeline('user', text);
+
+        await supabaseClient.from('chat_messages').insert([
+            { thread_id: currentThreadId, sender: 'user', text: text }
+        ]);
     });
 }
 
-// 3. 確認画面（専用リンクから開いた場合）
-async function renderStatusScreen(id) {
-    headerTitle.textContent = 'メッセージの確認';
-    mainContent.innerHTML = `<p style="text-align:center;">データを読み込んでいます...</p>`;
-
-    const { data, error } = await supabaseClient
-        .from('messages')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-    if (error || !data) {
-        mainContent.innerHTML = `<p style="text-align:center;">情報が見つかりません。URLが正しいか確認してください。</p>`;
-        return;
-    }
-
-    if (!data.reply) {
-        // 返答がまだの場合
-        mainContent.innerHTML = `
-            <div class="notice-box">
-                <h3>メッセージを確認しました</h3>
-                <p>現在、お返事を準備中です。もうしばらくお待ちください。<br>貴重なメッセージをありがとうございます！</p>
-            </div>
-            <div class="chat-container" style="margin-top: 20px;">
-                <div class="message-bubble message-mine">${escapeHTML(data.message)}</div>
-            </div>
-        `;
-    } else {
-        // 返答が来た場合
-        mainContent.innerHTML = `
-            <div class="notice-box" style="background-color:#e6f4ea; border-color:#ceead6; color:#137333;">
-                <p>お返事が届きました！ご協力ありがとうございます。</p>
-            </div>
-            <div class="chat-container" style="margin-top: 20px;">
-                <div class="message-bubble message-mine">${escapeHTML(data.message)}</div>
-                <div class="message-bubble message-theirs">${escapeHTML(data.reply)}</div>
-            </div>
-        `;
-    }
-}
-
-// 4. 管理者画面（?admin=true で開いた場合）
+/* -----------------------------------------
+   C. 管理者画面の制御 (?admin=true)
+----------------------------------------- */
 async function renderAdminScreen() {
-    headerTitle.textContent = '管理者: 未返信リスト';
-    mainContent.innerHTML = `<p style="text-align:center;">読み込み中...</p>`;
+    roomNameLabel.textContent = '管理者用ダッシュボード';
+    urlBanner.style.display = 'none';
+    document.getElementById('chat-footer').style.display = 'none';
+    timeline.innerHTML = '<p style="text-align:center; color:#666;">会話スレッドを読み込み中...</p>';
 
-    const { data, error } = await supabaseClient
-        .from('messages')
+    // 全メッセージを取得
+    const { data: allMessages, error } = await supabaseClient
+        .from('chat_messages')
         .select('*')
-        .is('reply', null)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: true });
 
     if (error) {
-        mainContent.innerHTML = `<p>データの取得に失敗しました。</p>`;
+        timeline.innerHTML = '<p>データの取得に失敗しました。</p>';
         return;
     }
 
-    if (data.length === 0) {
-        mainContent.innerHTML = `<p style="text-align:center;">未返信のメッセージはありません。</p>`;
-        return;
-    }
+    // スレッドごとに発言をグループ化
+    const threadsMap = {};
+    allMessages.forEach(msg => {
+        if (!threadsMap[msg.thread_id]) {
+            threadsMap[msg.thread_id] = [];
+        }
+        threadsMap[msg.thread_id].push(msg);
+    });
 
-    let htmlStr = '';
-    data.forEach(msg => {
-        htmlStr += `
-            <div class="admin-card" id="card-${msg.id}">
-                <p><strong>受信メッセージ:</strong><br>${escapeHTML(msg.message)}</p>
-                <textarea id="reply-${msg.id}" placeholder="返信を入力..."></textarea>
-                <button onclick="sendReply('${msg.id}')">返信する</button>
+    timeline.innerHTML = '';
+
+    // 各スレッドをカード形式で表示
+    Object.keys(threadsMap).forEach(threadId => {
+        const msgs = threadsMap[threadId];
+        
+        const card = document.createElement('div');
+        card.className = 'admin-thread-card';
+        card.id = `thread-card-${threadId}`;
+
+        let historyHtml = '';
+        msgs.forEach(m => {
+            const name = m.sender === 'user' ? '相手' : 'Luca';
+            historyHtml += `<div><strong>${name}:</strong> ${escapeHTML(m.text)}</div>`;
+        });
+
+        card.innerHTML = `
+            <div class="admin-history">${historyHtml}</div>
+            <div class="admin-reply-box">
+                <textarea id="admin-input-${threadId}" placeholder="Lucaとして返信を入力..."></textarea>
+                <button onclick="sendAdminReply('${threadId}')" style="background:#273246; color:white; border:none; border-radius:6px; padding:0 15px; cursor:pointer;">返信</button>
             </div>
         `;
+        timeline.appendChild(card);
     });
-    mainContent.innerHTML = htmlStr;
+    
+    if (Object.keys(threadsMap).length === 0) {
+        timeline.innerHTML = '<p style="text-align:center; color:#666;">まだメッセージはありません。</p>';
+    }
 }
 
-// 返信を保存する処理
-window.sendReply = async function(id) {
-    const replyText = document.getElementById(`reply-${id}`).value;
-    if (!replyText.trim()) return;
+// 管理者からの返信処理
+window.sendAdminReply = async function(threadId) {
+    const input = document.getElementById(`admin-input-${threadId}`);
+    const text = input.value.trim();
+    if (!text) return;
+
+    input.value = '';
 
     const { error } = await supabaseClient
-        .from('messages')
-        .update({ reply: replyText })
-        .eq('id', id);
+        .from('chat_messages')
+        .insert([
+            { thread_id: threadId, sender: 'luca', text: text }
+        ]);
 
     if (error) {
-        alert('送信がうまくいきませんでした。');
+        alert('返信の送信に失敗しました。');
     } else {
-        // 送信できたら画面から消す
-        document.getElementById(`card-${id}`).style.display = 'none';
+        // カード内の表示を即時更新して再確認できるようにする
+        renderAdminScreen();
     }
 };
 
-// 安全に文字を表示するための処理
 function escapeHTML(str) {
-    return str.replace(/[&<>'"]/g, function(tag) {
-        const chars = { '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' };
-        return chars[tag] || tag;
-    });
+    return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
 }
 
-// アプリの開始
 init();
