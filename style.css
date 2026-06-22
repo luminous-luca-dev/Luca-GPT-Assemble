@@ -30,10 +30,15 @@ body {
     transition: all 0.4s ease;
     z-index: 10;
     border-bottom: 2px solid #1a252f;
+    max-height: 150px; /* 中身が収まる十分な高さを設定 */
+    overflow: hidden;  /* はみ出た部分を隠す */
 }
 
 #url-banner.hidden {
-    margin-top: -120px; /* 画面外に隠す */
+    max-height: 0;         /* 高さを0にして隠す */
+    padding-top: 0;        /* 上下の余白も0にする */
+    padding-bottom: 0;
+    border-bottom-width: 0;/* 下線の太さも0にする */
     opacity: 0;
 }
 
