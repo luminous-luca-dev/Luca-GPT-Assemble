@@ -28,7 +28,7 @@ function renderSendScreen() {
     headerTitle.textContent = 'メッセージを送る';
     mainContent.innerHTML = `
         <div class="notice-box">
-            <p>匿名で何でもメッセージを送ってください。<br>頂いた内容はLuca-GPTの学習に役立てます！</p>
+            <p>匿名で何でもメッセージを送ってください。<br>頂いた内容はLuca-GPTの学習に役立てます。</p>
         </div>
         <textarea id="messageInput" placeholder="ここにメッセージを入力..."></textarea>
         <button id="sendBtn">送信する</button>
