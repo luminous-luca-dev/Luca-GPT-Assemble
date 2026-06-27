@@ -98,7 +98,7 @@ function setupInitialChat() {
 
         // 4. Lucaからの自動返信演出（1秒後にシュッと登場）
         setTimeout(async () => {
-            const lucaGreeting = "メッセージありがとう！！助かる～\n返事するからURLコピーしておいて";
+            const lucaGreeting = "ﾒｯｾｰｼﾞありがとう！！助かる～\n返事するからURLｺﾋﾟｰしておいて";
             
             // Lucaのセリフもデータベースに永続化する
             await supabaseClient.from('chat_messages').insert([
