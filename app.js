@@ -159,11 +159,17 @@ function setupActiveChat() {
 /* -----------------------------------------
    C. 管理者画面の制御 (?admin=true)
 ----------------------------------------- */
-async function renderAdminScreen() {
+let isAutoRefreshStarted = false; // 自動更新タイマーの二重起動防止フラグ
+
+async function renderAdminScreen(isAutoRefresh = false) {
     roomNameLabel.textContent = '管理者用ダッシュボード';
     urlBanner.style.display = 'none';
     document.getElementById('chat-footer').style.display = 'none';
-    timeline.innerHTML = '<p style="text-align:center; color:#666;">会話スレッドを読み込み中...</p>';
+    
+    // 初回読み込み時だけ「読み込み中...」を表示（自動更新時の画面チラつきを防止）
+    if (!isAutoRefresh && !timeline.innerHTML) {
+        timeline.innerHTML = '<p style="text-align:center; color:#666;">会話スレッドを読み込み中...</p>';
+    }
 
     // 全メッセージを取得
     const { data: allMessages, error } = await supabaseClient
@@ -172,9 +178,9 @@ async function renderAdminScreen() {
         .order('created_at', { ascending: true });
 
     if (error) {
-        timeline.innerHTML = '<p>データの取得に失敗しました。</p>';
+        if (!isAutoRefresh) timeline.innerHTML = '<p>データの取得に失敗しました。</p>';
         return;
-    }
+        }
 
     // スレッドごとに発言をグループ化
     const threadsMap = {};
@@ -185,10 +191,18 @@ async function renderAdminScreen() {
         threadsMap[msg.thread_id].push(msg);
     });
 
-    timeline.innerHTML = '';
+    // ★改善1: 各スレッドの「一番最後のメッセージの日時」を比較して新着順（降順）に並び替え
+    const sortedThreadIds = Object.keys(threadsMap).sort((a, b) => {
+        const lastMsgA = threadsMap[a][threadsMap[a].length - 1];
+        const lastMsgB = threadsMap[b][threadsMap[b].length - 1];
+        return new Date(lastMsgB.created_at) - new Date(lastMsgA.created_at);
+    });
 
-    // 各スレッドをカード形式で表示
-    Object.keys(threadsMap).forEach(threadId => {
+    // データの取得が完了してからDOMを一括生成（画面のチラつき防止）
+    const fragment = document.createDocumentFragment();
+
+    // 並び替えた順（sortedThreadIds）にカードを生成
+    sortedThreadIds.forEach(threadId => {
         const msgs = threadsMap[threadId];
         
         const card = document.createElement('div');
@@ -208,11 +222,28 @@ async function renderAdminScreen() {
                 <button onclick="sendAdminReply('${threadId}')" style="background:#273246; color:white; border:none; border-radius:6px; padding:0 15px; cursor:pointer;">返信</button>
             </div>
         `;
-        timeline.appendChild(card);
+        fragment.appendChild(card);
     });
+
+    timeline.innerHTML = '';
+    timeline.appendChild(fragment);
     
-    if (Object.keys(threadsMap).length === 0) {
+    if (sortedThreadIds.length === 0) {
         timeline.innerHTML = '<p style="text-align:center; color:#666;">まだメッセージはありません。</p>';
+    }
+
+    // ★改善2: 初回描画時のみ、5秒おきに新着をチェックする自動更新タイマーをセット
+    if (!isAutoRefreshStarted) {
+        isAutoRefreshStarted = true;
+        setInterval(() => {
+            // 【重要】どこかのスレッドで返信を入力中（テキストエリアに文字がある状態）なら、
+            // 入力文字が消えないように自動更新をストップして邪魔しない！
+            const isTyping = Array.from(document.querySelectorAll('.admin-reply-box textarea'))
+                                  .some(ta => ta.value.trim() !== '');
+            if (!isTyping) {
+                renderAdminScreen(true); // 裏で静かに更新
+            }
+        }, 5000); // 5000 = 5秒おき
     }
 }
 
@@ -233,7 +264,7 @@ window.sendAdminReply = async function(threadId) {
     if (error) {
         alert('返信の送信に失敗しました。');
     } else {
-        // カード内の表示を即時更新して再確認できるようにする
+        // 返信後は即時更新して自分のメッセージを反映
         renderAdminScreen();
     }
 };
