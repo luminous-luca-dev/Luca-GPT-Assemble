@@ -1,3 +1,32 @@
+/* -----------------------------------------
+   E. iOSアプリ内ブラウザ（In-App Browser）対策
+   （※一番上に配置して、ページ読み込み直後に即チェックする）
+----------------------------------------- */
+function checkAndRedirectSafari() {
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iphone|ipad|ipod/.test(ua);
+    if (!isIOS) return; 
+
+    const isLine = ua.includes('line');
+    const isTwitter = ua.includes('twitter');
+    const isInstagram = ua.includes('instagram');
+    const isFacebook = ua.includes('fbav') || ua.includes('fban');
+
+    if (isLine || isTwitter || isInstagram || isFacebook) {
+        if (isLine) {
+            if (!window.location.search.includes('openExternalBrowser=1')) {
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.set('openExternalBrowser', '1');
+                window.location.href = newUrl.href;
+                return;
+            }
+        } else {
+            document.getElementById('iab-warning').classList.remove('hidden');
+        }
+    }
+}
+checkAndRedirectSafari();
+
 // Supabaseの接続情報（メモした情報に書き換えてください）
 const SUPABASE_URL = 'https://kslcxmfmzwgmuxsrnjrb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_HzbTleN2spmfwE8neINPKw_TxHP80ob';
@@ -16,6 +45,15 @@ const urlParams = new URLSearchParams(window.location.search);
 let currentThreadId = urlParams.get('id');
 const isAdmin = urlParams.get('admin') === 'true';
 
+/* -----------------------------------------
+   Service Worker の登録
+----------------------------------------- */
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(err => {
+        console.log('Service Workerの登録に失敗しました:', err);
+    });
+}
+
 // 起動時の初期化
 async function init() {
     if (isAdmin) {
@@ -25,6 +63,9 @@ async function init() {
         showURLBanner(currentThreadId);
         await loadChatHistory(currentThreadId);
         setupActiveChat();
+        
+        // ★ 既にIDがあるので、ここでPWAをセットアップ
+        setupPWA(currentThreadId); 
     } else {
         // 初めてアクセスした状態（最初の1通目を待つ）
         setupInitialChat();
@@ -86,6 +127,9 @@ function setupInitialChat() {
         }
 
         currentThreadId = threadData[0].id;
+
+        // ★ IDが新規発行された直後のこのタイミングでPWAをセットアップ！
+        setupPWA(currentThreadId);
 
         // 2. ユーザーのメッセージを保存
         await supabaseClient.from('chat_messages').insert([
@@ -274,3 +318,66 @@ function escapeHTML(str) {
 }
 
 init();
+
+// ▼▼▼ ファイルの末尾にPWA機能をそのまま追加 ▼▼▼
+/* -----------------------------------------
+   D. PWA（ホーム画面に追加）機能
+----------------------------------------- */
+let deferredPrompt;
+
+function setupPWA(threadId) {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    if (isStandalone) {
+        return; 
+    }
+
+    const manifest = {
+        "name": "Luca Chat",
+        "short_name": "Luca",
+        "start_url": `/?id=${threadId}`,
+        "display": "standalone",
+        "background_color": "#2c3e50",
+        "theme_color": "#2c3e50",
+        "icons": [
+            { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }
+        ]
+    };
+
+    const manifestUrl = 'data:application/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(manifest));
+    const manifestLink = document.createElement('link');
+    manifestLink.rel = 'manifest';
+    manifestLink.href = manifestUrl;
+    document.head.appendChild(manifestLink);
+
+    const appleIcon = document.createElement('link');
+    appleIcon.rel = 'apple-touch-icon';
+    appleIcon.href = 'icon-192.png';
+    document.head.appendChild(appleIcon);
+
+    const installBtn = document.getElementById('install-btn');
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+
+    if (isIOS) {
+        installBtn.classList.remove('hidden');
+        installBtn.addEventListener('click', () => {
+            document.getElementById('ios-install-modal').classList.remove('hidden');
+        });
+    } else {
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault(); 
+            deferredPrompt = e; 
+            installBtn.classList.remove('hidden'); 
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt(); 
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    installBtn.classList.add('hidden'); 
+                }
+                deferredPrompt = null;
+            }
+        });
+    }
+}
