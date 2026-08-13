@@ -58,6 +58,7 @@ if ('serviceWorker' in navigator) {
 async function init() {
     if (isAdmin) {
         renderAdminScreen();
+        setupAdminRealtime(); // ★ここに追加！
     } else if (currentThreadId) {
         // すでにURL（トーク部屋）を持っている場合
         showURLBanner(currentThreadId);
@@ -69,6 +70,7 @@ async function init() {
 
         // ★追加：すでにURLを持っているユーザーにも通知設定を走らせる
         setupPushNotifications(currentThreadId);
+        setupUserRealtime(currentThreadId); // ★ここに追加！
     } else {
         // 初めてアクセスした状態（最初の1通目を待つ）
         setupInitialChat();
@@ -140,6 +142,8 @@ function setupInitialChat() {
         // ★追加：はじめてメッセージを送った直後に通知を促す
         setupPushNotifications(currentThreadId);
 
+        setupUserRealtime(currentThreadId); // ★ここに追加！（新規作成時にも監視スタート）
+        
         // 2. ユーザーのメッセージを保存
         await supabaseClient.from('chat_messages').insert([
             { thread_id: currentThreadId, sender: 'user', text: text }
@@ -290,19 +294,6 @@ async function renderAdminScreen(isAutoRefresh = false) {
         timeline.innerHTML = '<p style="text-align:center; color:#666;">まだメッセージはありません。</p>';
     }
 
-    // ★改善2: 初回描画時のみ、5秒おきに新着をチェックする自動更新タイマーをセット
-    if (!isAutoRefreshStarted) {
-        isAutoRefreshStarted = true;
-        setInterval(() => {
-            // 【重要】どこかのスレッドで返信を入力中（テキストエリアに文字がある状態）なら、
-            // 入力文字が消えないように自動更新をストップして邪魔しない！
-            const isTyping = Array.from(document.querySelectorAll('.admin-reply-box textarea'))
-                                  .some(ta => ta.value.trim() !== '');
-            if (!isTyping) {
-                renderAdminScreen(true); // 裏で静かに更新
-            }
-        }, 5000); // 5000 = 5秒おき
-    }
 }
 
 // 管理者からの返信処理
@@ -311,6 +302,7 @@ window.sendAdminReply = async function(threadId) {
     const text = input.value.trim();
     if (!text) return;
 
+    // 送信ボタンを押した瞬間に、入力欄だけをサッと空にする
     input.value = '';
 
     const { error } = await supabaseClient
@@ -321,9 +313,6 @@ window.sendAdminReply = async function(threadId) {
 
     if (error) {
         alert('返信の送信に失敗しました。');
-    } else {
-        // 返信後は即時更新して自分のメッセージを反映
-        renderAdminScreen();
     }
 };
 
@@ -463,4 +452,61 @@ async function setupPushNotifications(threadId) {
             }
         });
     });
+}
+
+/* -----------------------------------------
+   G. Supabase リアルタイム通信 (吹き出しのみ追加)
+----------------------------------------- */
+// ▼ ユーザー用：相手(Luca)からメッセージが来たら吹き出しを追加
+function setupUserRealtime(threadId) {
+    supabaseClient
+        .channel('user-room')
+        .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages',
+            filter: `thread_id=eq.${threadId}`
+        }, payload => {
+            // 自分(user)のメッセージは送信時に画面に出しているので無視。相手からのものだけ追加。
+            if (payload.new.sender !== 'user') {
+                appendMessageToTimeline(payload.new.sender, payload.new.text);
+            }
+        })
+        .subscribe();
+}
+
+// ▼ 管理者用：新着メッセージが来たら該当スレッドに追記
+function setupAdminRealtime() {
+    supabaseClient
+        .channel('admin-room')
+        .on('postgres_changes', {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'chat_messages'
+        }, payload => {
+            const m = payload.new;
+            const threadCard = document.getElementById(`thread-card-${m.thread_id}`);
+            const name = m.sender === 'user' ? '相手' : 'Luca';
+            const msgHtml = `<div><strong>${name}:</strong> ${escapeHTML(m.text)}</div>`;
+
+            if (threadCard) {
+                // すでに画面にあるスレッドなら、履歴の一番下にひっそりHTMLを追加
+                const historyDiv = threadCard.querySelector('.admin-history');
+                historyDiv.insertAdjacentHTML('beforeend', msgHtml);
+            } else {
+                // もし全く新しい人からの初回メッセージだった場合、カードを作って一番上に差し込む
+                const card = document.createElement('div');
+                card.className = 'admin-thread-card';
+                card.id = `thread-card-${m.thread_id}`;
+                card.innerHTML = `
+                    <div class="admin-history">${msgHtml}</div>
+                    <div class="admin-reply-box">
+                        <textarea id="admin-input-${m.thread_id}" placeholder="Lucaとして返信を入力..."></textarea>
+                        <button onclick="sendAdminReply('${m.thread_id}')" style="background:#273246; color:white; border:none; border-radius:6px; padding:0 15px; cursor:pointer;">返信</button>
+                    </div>
+                `;
+                timeline.prepend(card);
+            }
+        })
+        .subscribe();
 }
