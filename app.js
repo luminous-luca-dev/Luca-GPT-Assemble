@@ -449,11 +449,24 @@ async function setupPushNotifications(threadId) {
             }
         };
 
-        // 1. すでにIDが存在すれば即時保存
-        const currentId = OneSignal.User.PushSubscription.id;
-        if (currentId) {
-            await saveSubscriptionId(currentId);
-        }
+        // 1. IDが発行されるまで最大10秒間（1秒間隔）待機して保存を試みる
+        const pollForIdAndSave = async () => {
+            let attempts = 0;
+            while (attempts < 10) {
+                const currentId = OneSignal.User.PushSubscription.id;
+                if (currentId) {
+                    // IDが見つかったら保存を実行
+                    await saveSubscriptionId(currentId);
+                    break; // 保存できたらループを終了
+                }
+                // IDがまだ無い場合は1秒待って再試行
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                attempts++;
+            }
+        };
+
+        // 上記の待機＆保存処理を実行
+        await pollForIdAndSave();
 
         // 2. ユーザーがポップアップで「許可」を押してIDが発行された瞬間を検知して保存
         OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
