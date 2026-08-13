@@ -631,38 +631,46 @@ pushToggle.addEventListener('change', (e) => {
     const isChecked = e.target.checked;
     
     OneSignalDeferred.push(async function(OneSignal) {
-        if (isChecked) {
-            // --- ONにした場合 ---
-            await OneSignal.User.PushSubscription.optIn();
-            
-            // IDが取れるまで最大3秒間（0.5秒おきに）確認して再登録
-            let currentId = OneSignal.User.PushSubscription.id;
-            let attempts = 0;
-            while (!currentId && attempts < 6) {
-                await new Promise(resolve => setTimeout(resolve, 500));
-                currentId = OneSignal.User.PushSubscription.id;
-                attempts++;
-            }
+        // ★ 処理開始！ぐるぐるを出す
+        showLoading();
 
-            if (currentId && currentThreadId) {
-                await supabaseClient
-                    .from('threads')
-                    .update({ onesignal_id: currentId })
-                    .eq('id', currentThreadId);
-                console.log("【通知ON】onesignal_id を復元しました:", currentId);
+        try {
+            if (isChecked) {
+                // --- ONにした場合 ---
+                await OneSignal.User.PushSubscription.optIn();
+                
+                // IDが取れるまで最大3秒間（0.5秒おきに）確認して再登録
+                let currentId = OneSignal.User.PushSubscription.id;
+                let attempts = 0;
+                while (!currentId && attempts < 6) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    currentId = OneSignal.User.PushSubscription.id;
+                    attempts++;
+                }
+
+                if (currentId && currentThreadId) {
+                    await supabaseClient
+                        .from('threads')
+                        .update({ onesignal_id: currentId })
+                        .eq('id', currentThreadId);
+                    console.log("【通知ON】onesignal_id を復元しました:", currentId);
+                }
+            } else {
+                // --- OFFにした場合 ---
+                await OneSignal.User.PushSubscription.optOut();
+                
+                // Supabaseのonesignal_idをnullにして送信対象から外す
+                if (currentThreadId) {
+                    await supabaseClient
+                        .from('threads')
+                        .update({ onesignal_id: null })
+                        .eq('id', currentThreadId);
+                    console.log("【通知OFF】onesignal_id を null に設定しました");
+                }
             }
-        } else {
-            // --- OFFにした場合 ---
-            await OneSignal.User.PushSubscription.optOut();
-            
-            // Supabaseのonesignal_idをnullにして送信対象から外す
-            if (currentThreadId) {
-                await supabaseClient
-                    .from('threads')
-                    .update({ onesignal_id: null })
-                    .eq('id', currentThreadId);
-                console.log("【通知OFF】onesignal_id を null に設定しました");
-            }
+        } finally {
+            // ★ 処理が全て終わったらぐるぐるを消す
+            hideLoading();
         }
     });
 });
