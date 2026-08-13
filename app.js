@@ -332,7 +332,7 @@ function setupPWA(threadId) {
     }
 
     const manifest = {
-        "name": "Luca Chat",
+        "name": "Chat-NGT",
         "short_name": "Luca",
         "start_url": `/?id=${threadId}`,
         "display": "standalone",
