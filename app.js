@@ -611,11 +611,37 @@ pushToggle.addEventListener('change', (e) => {
     
     OneSignalDeferred.push(async function(OneSignal) {
         if (isChecked) {
-            // ONにした場合（配信を再開）
+            // --- ONにした場合 ---
             await OneSignal.User.PushSubscription.optIn();
+            
+            // IDが取れるまで最大3秒間（0.5秒おきに）確認して再登録
+            let currentId = OneSignal.User.PushSubscription.id;
+            let attempts = 0;
+            while (!currentId && attempts < 6) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+                currentId = OneSignal.User.PushSubscription.id;
+                attempts++;
+            }
+
+            if (currentId && currentThreadId) {
+                await supabaseClient
+                    .from('threads')
+                    .update({ onesignal_id: currentId })
+                    .eq('id', currentThreadId);
+                console.log("【通知ON】onesignal_id を復元しました:", currentId);
+            }
         } else {
-            // OFFにした場合（配信を停止）
+            // --- OFFにした場合 ---
             await OneSignal.User.PushSubscription.optOut();
+            
+            // Supabaseのonesignal_idをnullにして送信対象から外す
+            if (currentThreadId) {
+                await supabaseClient
+                    .from('threads')
+                    .update({ onesignal_id: null })
+                    .eq('id', currentThreadId);
+                console.log("【通知OFF】onesignal_id を null に設定しました");
+            }
         }
     });
 });
