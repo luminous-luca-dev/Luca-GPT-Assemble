@@ -40,8 +40,8 @@ serve(async (req) => {
         const payload = {
             app_id: ONESIGNAL_APP_ID,
             include_subscription_ids: [threadData.onesignal_id],
-            headings: { ja: "Luca", en: "Luca" },
-            contents: { ja: "メッセージが届きました！", en: "New message arrived!" },
+            headings: { ja: "永田", en: "永田" },
+            contents: { ja: record.text, en: record.text },
             url: `${Deno.env.get('APP_URL')}/?id=${record.thread_id}` 
         }
 
