@@ -408,27 +408,34 @@ OneSignalDeferred.push(async function(OneSignal) {
 
 // ユーザーに通知許可を求め、許可されたらIDをDBに保存する関数
 async function setupPushNotifications(threadId) {
+    // ★1行目にログを置く（ここすら出ない場合は関数自体が呼ばれていないか、キャッシュのせい）
+    console.log("【1】setupPushNotifications が実行されました。threadId:", threadId);
+
     if (!threadId) {
-        console.error("【通知エラー】threadId が空です。");
+        console.error("【エラー】threadId が受け取れていません。");
         return;
     }
 
-    OneSignalDeferred.push(async function(OneSignal) {
-        // PWAとしてインストールされている（またはAndroid/PC）場合のみ通知を促す
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-        
-        if (isIOS && !isStandalone) {
-            console.log("【通知スキップ】iOSのブラウザ環境です。");
-            return;
-        }
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 
-        // 通知ダイアログを表示
+    console.log("【2】環境チェック -> iOS:", isIOS, "PWA起動:", isStandalone);
+
+    if (isIOS && !isStandalone) {
+        console.log("【3】iOSのブラウザ環境のため、通知処理をスキップしました（ホーム画面に追加して起動してください）");
+        return;
+    }
+
+    console.log("【4】OneSignalの処理を開始します...");
+
+    OneSignalDeferred.push(async function(OneSignal) {
+        console.log("【5】OneSignalSDKの準備が完了しました");
+
         await OneSignal.Slidedown.promptPush();
 
         // IDをDBに保存する共通関数
         const saveSubscriptionId = async (subId) => {
-            console.log("【OneSignal】取得したデバイスID:", subId);
+            console.log("【6】取得したデバイスID:", subId);
             
             const { data, error } = await supabaseClient
                 .from('threads')
@@ -437,9 +444,9 @@ async function setupPushNotifications(threadId) {
                 .select();
 
             if (error) {
-                console.error("【Supabase更新エラー】RLS等の原因:", error.message);
+                console.error("【Supabase更新エラー】:", error.message);
             } else {
-                console.log("【成功】onesignal_id を更新しました:", data);
+                console.log("【成功】onesignal_id を更新完了:", data);
             }
         };
 
