@@ -408,46 +408,51 @@ OneSignalDeferred.push(async function(OneSignal) {
 
 // ユーザーに通知許可を求め、許可されたらIDをDBに保存する関数
 async function setupPushNotifications(threadId) {
+    if (!threadId) {
+        console.error("【通知エラー】threadId が空です。");
+        return;
+    }
+
     OneSignalDeferred.push(async function(OneSignal) {
         // PWAとしてインストールされている（またはAndroid/PC）場合のみ通知を促す
         const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
         
-        // iOSのSafari（ブラウザのまま）なら通知は非対応なので処理を抜ける
-        if (isIOS && !isStandalone) return;
+        if (isIOS && !isStandalone) {
+            console.log("【通知スキップ】iOSのブラウザ環境です。");
+            return;
+        }
 
-        // 通知ポップアップを表示
+        // 通知ダイアログを表示
         await OneSignal.Slidedown.promptPush();
 
-        // DBにIDを保存する処理
-        const saveSubscription = async () => {
-            const subscriptionId = OneSignal.User.PushSubscription.id;
-            console.log("【OneSignal】取得したID:", subscriptionId);
+        // IDをDBに保存する共通関数
+        const saveSubscriptionId = async (subId) => {
+            console.log("【OneSignal】取得したデバイスID:", subId);
+            
+            const { data, error } = await supabaseClient
+                .from('threads')
+                .update({ onesignal_id: subId })
+                .eq('id', threadId)
+                .select();
 
-            if (subscriptionId) {
-                const { data, error } = await supabaseClient
-                    .from('threads')
-                    .update({ onesignal_id: subscriptionId })
-                    .eq('id', threadId)
-                    .select();
-
-                if (error) {
-                    console.error("【Supabaseエラー】保存失敗:", error);
-                } else {
-                    console.log("【成功】onesignal_idを保存しました:", data);
-                }
+            if (error) {
+                console.error("【Supabase更新エラー】RLS等の原因:", error.message);
+            } else {
+                console.log("【成功】onesignal_id を更新しました:", data);
             }
         };
 
-        // 1. すでにIDが存在していれば即時保存
-        if (OneSignal.User.PushSubscription.id) {
-            await saveSubscription();
+        // 1. すでにIDが存在すれば即時保存
+        const currentId = OneSignal.User.PushSubscription.id;
+        if (currentId) {
+            await saveSubscriptionId(currentId);
         }
 
-        // 2. ユーザーがポップアップで「許可」を押した瞬間を検知して保存
+        // 2. ユーザーがポップアップで「許可」を押してIDが発行された瞬間を検知して保存
         OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
             if (event.current.id) {
-                await saveSubscription();
+                await saveSubscriptionId(event.current.id);
             }
         });
     });
