@@ -174,7 +174,6 @@ function setupInitialChat() {
                 await supabaseClient.from('chat_messages').insert([
                     { thread_id: currentThreadId, sender: 'luca', text: lucaGreeting, is_auto_reply: true }
                 ]);
-                appendMessageToTimeline('luca', lucaGreeting);
                 setupActiveChat();
             }, 1000);
 
