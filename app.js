@@ -65,7 +65,10 @@ async function init() {
         setupActiveChat();
         
         // ★ 既にIDがあるので、ここでPWAをセットアップ
-        setupPWA(currentThreadId); 
+        setupPWA(currentThreadId);
+
+        // ★追加：すでにURLを持っているユーザーにも通知設定を走らせる
+        setupPushNotifications(currentThreadId);
     } else {
         // 初めてアクセスした状態（最初の1通目を待つ）
         setupInitialChat();
@@ -133,6 +136,9 @@ function setupInitialChat() {
 
         // ★ IDが新規発行された直後のこのタイミングでPWAをセットアップ！
         setupPWA(currentThreadId);
+
+        // ★追加：はじめてメッセージを送った直後に通知を促す
+        setupPushNotifications(currentThreadId);
 
         // 2. ユーザーのメッセージを保存
         await supabaseClient.from('chat_messages').insert([
@@ -383,4 +389,40 @@ function setupPWA(threadId) {
             }
         });
     }
+}
+
+/* -----------------------------------------
+   F. OneSignal（プッシュ通知）の設定
+----------------------------------------- */
+window.OneSignalDeferred = window.OneSignalDeferred || [];
+OneSignalDeferred.push(async function(OneSignal) {
+    await OneSignal.init({
+        appId: "e1933f07-ccbb-472c-929a-db01487516cb", 
+    });
+});
+
+// ユーザーに通知許可を求め、許可されたらIDをDBに保存する関数
+async function setupPushNotifications(threadId) {
+    OneSignalDeferred.push(async function(OneSignal) {
+        // PWAとしてインストールされている（またはAndroid/PC）場合のみ通知を促す
+        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+        
+        // iOSのSafari（ブラウザのまま）なら通知は非対応なので処理を抜ける
+        if (isIOS && !isStandalone) return;
+
+        // 通知の許可ダイアログを表示
+        await OneSignal.Slidedown.promptPush();
+
+        // OneSignalが発行したこのスマホ専用のIDを取得
+        const subscriptionId = OneSignal.User.PushSubscription.id;
+        
+        if (subscriptionId) {
+            // SupabaseのthreadsテーブルにデバイスIDを保存（紐付け）
+            await supabaseClient
+                .from('threads')
+                .update({ onesignal_id: subscriptionId })
+                .eq('id', threadId);
+        }
+    });
 }
