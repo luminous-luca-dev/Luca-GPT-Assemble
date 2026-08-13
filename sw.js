@@ -1,3 +1,6 @@
+// sw.js の一番上にこの1行を必ず記述する
+importScripts('https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.sw.js');
+
 // sw.js
 self.addEventListener('install', (event) => {
     // 新しいService Workerを即座に有効化

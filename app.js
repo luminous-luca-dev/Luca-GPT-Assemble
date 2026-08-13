@@ -143,7 +143,7 @@ function setupInitialChat() {
         setupPushNotifications(currentThreadId);
 
         setupUserRealtime(currentThreadId); // ★ここに追加！（新規作成時にも監視スタート）
-        
+
         // 2. ユーザーのメッセージを保存
         await supabaseClient.from('chat_messages').insert([
             { thread_id: currentThreadId, sender: 'user', text: text }
@@ -510,3 +510,24 @@ function setupAdminRealtime() {
         })
         .subscribe();
 }
+
+/* -----------------------------------------
+   H. バックグラウンド復帰時の自動再取得（iOS対策）
+----------------------------------------- */
+document.addEventListener('visibilitychange', async () => {
+    // 画面が開かれた（アプリに戻ってきた）瞬間を検知
+    if (document.visibilityState === 'visible') {
+        console.log('アプリに復帰しました。最新メッセージを取得します。');
+        
+        if (isAdmin) {
+            // 管理者の場合：最新のスレッド状態を再読み込み
+            renderAdminScreen(true);
+        } else if (currentThreadId) {
+            // ユーザーの場合：最新のチャット履歴を再取得して画面を更新
+            await loadChatHistory(currentThreadId);
+            
+            // スクロールを最下部へ
+            scrollToBottom();
+        }
+    }
+});
