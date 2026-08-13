@@ -69,6 +69,29 @@
             <div class="header-menu"><i class="fa-solid fa-bars"></i></div>
         </header>
 
+        <!-- 戻るボタンの吹き出し -->
+        <div id="back-tooltip" class="tooltip-hidden">なにもないよ～ん</div>
+
+        <!-- 設定モーダル画面 -->
+        <div id="settings-modal" class="hidden">
+            <div class="settings-content">
+                <div class="settings-header">
+                    <h3>設定</h3>
+                    <button id="close-settings-btn"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="settings-body">
+                    <div class="setting-item">
+                        <span>プッシュ通知</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="push-toggle">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                    <p class="setting-desc">メッセージが届いた時に通知を受け取ります。（※端末自体の通知がOFFの場合は機能しません）</p>
+                </div>
+            </div>
+        </div>
+
         <main id="chat-timeline">
             </main>
 

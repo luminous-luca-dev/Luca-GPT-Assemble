@@ -554,3 +554,68 @@ document.addEventListener('visibilitychange', async () => {
         }
     }
 });
+
+/* -----------------------------------------
+   I. ヘッダー機能（戻るボタン＆設定メニュー）
+----------------------------------------- */
+// 1. 戻るボタンの吹き出しアクション
+const headerBackBtn = document.querySelector('.header-back');
+const backTooltip = document.getElementById('back-tooltip');
+let backTooltipTimer = null;
+
+headerBackBtn.addEventListener('click', () => {
+    // 吹き出しを表示
+    backTooltip.classList.remove('tooltip-hidden');
+    
+    // 連続で押された時のために前のタイマーをクリア
+    if (backTooltipTimer) clearTimeout(backTooltipTimer);
+    
+    // 2秒後に再び隠す
+    backTooltipTimer = setTimeout(() => {
+        backTooltip.classList.add('tooltip-hidden');
+    }, 2000);
+});
+
+// 2. 設定メニュー（通知ON/OFF）
+const headerMenuBtn = document.querySelector('.header-menu');
+const settingsModal = document.getElementById('settings-modal');
+const closeSettingsBtn = document.getElementById('close-settings-btn');
+const pushToggle = document.getElementById('push-toggle');
+
+// メニューボタンを押して設定を開く
+headerMenuBtn.addEventListener('click', () => {
+    settingsModal.classList.remove('hidden');
+    
+    // 現在のOneSignalの通知状態を取得して、トグルスイッチの見た目に反映させる
+    OneSignalDeferred.push(async function(OneSignal) {
+        const isPushEnabled = OneSignal.User.PushSubscription.optedIn;
+        pushToggle.checked = isPushEnabled;
+    });
+});
+
+// ×ボタンを押して設定を閉じる
+closeSettingsBtn.addEventListener('click', () => {
+    settingsModal.classList.add('hidden');
+});
+
+// モーダルの黒い背景部分をタップしても閉じるようにする
+settingsModal.addEventListener('click', (e) => {
+    if (e.target === settingsModal) {
+        settingsModal.classList.add('hidden');
+    }
+});
+
+// トグルスイッチ（ON/OFF）を切り替えた時の処理
+pushToggle.addEventListener('change', (e) => {
+    const isChecked = e.target.checked;
+    
+    OneSignalDeferred.push(async function(OneSignal) {
+        if (isChecked) {
+            // ONにした場合（配信を再開）
+            await OneSignal.User.PushSubscription.optIn();
+        } else {
+            // OFFにした場合（配信を停止）
+            await OneSignal.User.PushSubscription.optOut();
+        }
+    });
+});
