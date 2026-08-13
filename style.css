@@ -52,10 +52,12 @@ body {
 .copy-box {
     display: flex;
     gap: 8px;
+    flex-wrap: wrap; /* ★追加：画面が狭い場合はボタンを下に折り返す */
 }
 
 #share-url {
     flex: 1;
+    min-width: 0; /* ★追加：入力欄がボタンを右に押し出すのを防ぐ */
     padding: 6px 10px;
     border: none;
     border-radius: 4px;
