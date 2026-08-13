@@ -128,6 +128,9 @@ function setupInitialChat() {
 
         currentThreadId = threadData[0].id;
 
+        // ★【追加】ブラウザのアドレスバーを専用URL(?id=xxx)に書き換える（iOS対策）
+        window.history.replaceState(null, '', `?id=${currentThreadId}`);
+
         // ★ IDが新規発行された直後のこのタイミングでPWAをセットアップ！
         setupPWA(currentThreadId);
 
