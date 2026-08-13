@@ -16,14 +16,46 @@
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
 </head>
 <body>
     <div id="chat-app">
+        <!-- ▼ ここから追加：アプリ内ブラウザ（LINE以外）警告画面 ▼ -->
+        <div id="iab-warning" class="hidden">
+            <div class="iab-content">
+                <h2>Safariで開いてください</h2>
+                <p>このアプリをスマホにインストールするには、<br>標準ブラウザ（Safari）で開く必要があります。</p>
+                <p style="margin-top: 15px; font-size: 0.9rem; color: #bdc3c7;">
+                    右下（または右上）の <strong>「⋯」</strong> や <strong>「コンパス」</strong> マークを押して、<br>
+                    <strong>「Safariで開く（またはブラウザで開く）」</strong><br>を選んでください！
+                </p>
+            </div>
+        </div>
+
+        <!-- ▼ ここから追加：iOS用インストール案内画面 ▼ -->
+        <div id="ios-install-modal" class="hidden">
+            <div class="modal-content">
+                <h3>アプリとして追加</h3>
+                <p>iPhoneの場合は、以下の手順で追加してください。</p>
+                <br>
+                <p>1. 画面下の <strong>「共有」アイコン（四角から↑が出ているマーク）</strong> をタップ</p>
+                <p>2. <strong>「ホーム画面に追加」</strong> を選択</p>
+                <button onclick="document.getElementById('ios-install-modal').classList.add('hidden')" style="margin-top:15px; padding:8px 16px;">閉じる</button>
+            </div>
+        </div>
+
         <div id="url-banner" class="hidden">
             <p class="banner-text">このトークの専用URL（いつでも続きから再開できます）</p>
             <div class="copy-box">
                 <input type="text" id="share-url" readonly>
                 <button id="copy-btn"><i class="fa-regular fa-copy"></i> コピー</button>
+                <!-- ▼ ここに新しいボタンを追加 ▼ -->
+                <button id="install-btn" class="hidden"><i class="fa-solid fa-download"></i> アプリDL</button>
             </div>
         </div>
 
