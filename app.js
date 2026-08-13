@@ -93,6 +93,16 @@ function appendMessageToTimeline(sender, text) {
 
 // URLバナーを表示する関数
 function showURLBanner(id) {
+    // ★追加：PWA（アプリ）として開かれているかを判定
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+
+    // アプリとして起動している場合は、バナー全体を隠したまま処理を終了する
+    if (isStandalone) {
+        urlBanner.classList.add('hidden');
+        return;
+    }
+
+    // Webブラウザで開いている場合のみ、これまで通りバナーを表示する
     const baseUrl = window.location.href.split('?')[0];
     shareUrlInput.value = `${baseUrl}?id=${id}`;
     urlBanner.classList.remove('hidden');
