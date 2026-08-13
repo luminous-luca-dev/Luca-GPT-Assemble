@@ -265,3 +265,16 @@ body {
     border-radius: 6px;
     font-weight: bold;
 }
+
+/* アプリDLボタン（コピーボタンの横） */
+#install-btn {
+    background-color: #2270e6; /* コピーボタンと色を分けて目立たせる（オレンジ） */
+    color: white;
+    border: none;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: bold;
+    white-space: nowrap;
+}
