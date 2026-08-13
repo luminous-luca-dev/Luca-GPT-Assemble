@@ -45,6 +45,15 @@ const urlParams = new URLSearchParams(window.location.search);
 let currentThreadId = urlParams.get('id');
 const isAdmin = urlParams.get('admin') === 'true';
 
+// ローディング画面の制御
+const loadingOverlay = document.getElementById('loading-overlay');
+function showLoading() {
+    loadingOverlay.classList.remove('hidden');
+}
+function hideLoading() {
+    loadingOverlay.classList.add('hidden');
+}
+
 /* -----------------------------------------
    Service Worker の登録
 ----------------------------------------- */
@@ -129,59 +138,51 @@ function setupInitialChat() {
         messageInput.value = '';
         sendBtn.disabled = true;
 
-        // 1. トークルーム（スレッド）を新規作成
-        const { data: threadData, error: tError } = await supabaseClient
-            .from('threads')
-            .insert([{}])
-            .select();
+        // ★ 処理開始！ぐるぐるを出す
+        showLoading();
 
-        if (tError || !threadData) {
-            alert('接続に失敗しました。');
-            sendBtn.disabled = false;
-            return;
-        }
+        try {
+            // 1. トークルーム（スレッド）を新規作成
+            const { data: threadData, error: tError } = await supabaseClient
+                .from('threads')
+                .insert([{}])
+                .select();
 
-        currentThreadId = threadData[0].id;
+            if (tError || !threadData) {
+                alert('接続に失敗しました。');
+                return;
+            }
 
-        // ★【追加】ブラウザのアドレスバーを専用URL(?id=xxx)に書き換える（iOS対策）
-        window.history.replaceState(null, '', `?id=${currentThreadId}`);
+            currentThreadId = threadData[0].id;
+            window.history.replaceState(null, '', `?id=${currentThreadId}`);
+            setupPWA(currentThreadId);
+            setupPushNotifications(currentThreadId);
+            setupUserRealtime(currentThreadId);
 
-        // ★ IDが新規発行された直後のこのタイミングでPWAをセットアップ！
-        setupPWA(currentThreadId);
-
-        // ★追加：はじめてメッセージを送った直後に通知を促す
-        setupPushNotifications(currentThreadId);
-
-        setupUserRealtime(currentThreadId); // ★ここに追加！（新規作成時にも監視スタート）
-
-        // 2. ユーザーのメッセージを保存
-        await supabaseClient.from('chat_messages').insert([
-            { thread_id: currentThreadId, sender: 'user', text: text }
-        ]);
-
-        // 3. 画面上の演出
-        showURLBanner(currentThreadId);
-        appendMessageToTimeline('user', text);
-
-        // 4. Lucaからの自動返信演出（1秒後にシュッと登場）
-        setTimeout(async () => {
-            const lucaGreeting = "ﾒｯｾｰｼﾞありがとう！！助かる～\n返事するからURLｺﾋﾟｰしておいて";
-            
-            // Lucaのセリフもデータベースに永続化する
+            // 2. ユーザーのメッセージを保存
             await supabaseClient.from('chat_messages').insert([
-                { 
-                    thread_id: currentThreadId, 
-                    sender: 'luca', 
-                    text: lucaGreeting,
-                    is_auto_reply: true // ★ここを追加！
-                }
+                { thread_id: currentThreadId, sender: 'user', text: text }
             ]);
-            
-            appendMessageToTimeline('luca', lucaGreeting);
-            
-            // 以降は重ねて送れるモードに移行
-            setupActiveChat();
-        }, 1000);
+
+            // 3. 画面上の演出
+            showURLBanner(currentThreadId);
+            appendMessageToTimeline('user', text);
+
+            // 4. Lucaからの自動返信演出
+            setTimeout(async () => {
+                const lucaGreeting = "ﾒｯｾｰｼﾞありがとう！！助かる～\n返事するからURLｺﾋﾟｰしておいて";
+                await supabaseClient.from('chat_messages').insert([
+                    { thread_id: currentThreadId, sender: 'luca', text: lucaGreeting, is_auto_reply: true }
+                ]);
+                appendMessageToTimeline('luca', lucaGreeting);
+                setupActiveChat();
+            }, 1000);
+
+        } finally {
+            // ★ 処理が全て終わったら（エラーでも）ぐるぐるを消す
+            hideLoading();
+            sendBtn.disabled = false;
+        }
     });
 }
 
@@ -206,7 +207,6 @@ async function loadChatHistory(id) {
 function setupActiveChat() {
     sendBtn.disabled = false;
     
-    // 古いイベントリスナーをクリアするために新しくボタンを置き換え
     const newSendBtn = sendBtn.cloneNode(true);
     sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
 
@@ -215,15 +215,29 @@ function setupActiveChat() {
         if (!text) return;
 
         messageInput.value = '';
-        appendMessageToTimeline('user', text);
+        
+        // ★ 処理開始！
+        showLoading();
 
-        await supabaseClient.from('chat_messages').insert([
-            { thread_id: currentThreadId, sender: 'user', text: text }
-        ]);
+        try {
+            const { error } = await supabaseClient.from('chat_messages').insert([
+                { thread_id: currentThreadId, sender: 'user', text: text }
+            ]);
 
-        // ★メッセージ送信（ユーザー操作）のタイミングで通知許可を要求する
-        if (typeof setupPushNotifications === 'function') {
-            setupPushNotifications(currentThreadId);
+            if (error) {
+                alert('送信に失敗しました。もう一度お試しください。');
+                return;
+            }
+
+            // DB保存が完了してから画面に表示
+            appendMessageToTimeline('user', text);
+
+            if (typeof setupPushNotifications === 'function') {
+                setupPushNotifications(currentThreadId);
+            }
+        } finally {
+            // ★ 処理完了！
+            hideLoading();
         }
     });
 }
@@ -315,14 +329,22 @@ window.sendAdminReply = async function(threadId) {
     // 送信ボタンを押した瞬間に、入力欄だけをサッと空にする
     input.value = '';
 
-    const { error } = await supabaseClient
-        .from('chat_messages')
-        .insert([
-            { thread_id: threadId, sender: 'luca', text: text }
-        ]);
+    // ★ 処理開始！
+    showLoading();
 
-    if (error) {
-        alert('返信の送信に失敗しました。');
+    try {
+        const { error } = await supabaseClient
+            .from('chat_messages')
+            .insert([
+                { thread_id: threadId, sender: 'luca', text: text }
+            ]);
+
+        if (error) {
+            alert('返信の送信に失敗しました。');
+        }
+    } finally {
+        // ★ 処理完了！
+        hideLoading();
     }
 };
 

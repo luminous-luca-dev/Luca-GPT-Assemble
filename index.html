@@ -25,6 +25,11 @@
     <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
 </head>
 <body>
+    <!-- ▼ ここから追加：ローディング画面 ▼ -->
+    <div id="loading-overlay" class="hidden">
+        <div class="spinner"></div>
+    </div>
+
     <div id="chat-app">
         <!-- ▼ ここから追加：アプリ内ブラウザ（LINE以外）警告画面 ▼ -->
         <div id="iab-warning" class="hidden">
