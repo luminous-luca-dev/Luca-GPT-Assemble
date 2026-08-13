@@ -206,6 +206,11 @@ function setupActiveChat() {
         await supabaseClient.from('chat_messages').insert([
             { thread_id: currentThreadId, sender: 'user', text: text }
         ]);
+
+        // ★メッセージ送信（ユーザー操作）のタイミングで通知許可を要求する
+        if (typeof setupPushNotifications === 'function') {
+            setupPushNotifications(currentThreadId);
+        }
     });
 }
 
