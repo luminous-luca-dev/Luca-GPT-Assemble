@@ -454,3 +454,79 @@ input:checked + .toggle-slider:before {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
+
+/* =========================================
+   追加: 管理者用 LINE風リスト表示 UI
+========================================= */
+.admin-list-item {
+    display: flex;
+    align-items: center;
+    padding: 12px 15px;
+    border-bottom: 1px solid #f5f6f8;
+    cursor: pointer;
+    transition: background 0.2s;
+    background: #fff;
+}
+.admin-list-item:active {
+    background: #e5e5ea;
+}
+.admin-list-avatar {
+    width: 48px;
+    height: 48px;
+    background: #5d6d7e;
+    border-radius: 50%;
+    margin-right: 12px;
+    flex-shrink: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-size: 1.3rem;
+}
+.admin-list-content {
+    flex: 1;
+    min-width: 0; /* 文字の省略(ellipsis)を効かせるため */
+}
+.admin-list-name {
+    font-weight: bold;
+    font-size: 1rem;
+    margin-bottom: 4px;
+    color: #111;
+}
+.admin-list-preview {
+    font-size: 0.85rem;
+    color: #888;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.admin-list-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-left: 10px;
+    min-width: 40px;
+}
+.admin-list-time {
+    font-size: 0.75rem;
+    color: #999;
+    margin-bottom: 6px;
+}
+.admin-unread-badge {
+    background: #ef5350; /* 新着バッジ風の赤 */
+    color: white;
+    font-size: 0.7rem;
+    font-weight: bold;
+    padding: 2px 6px;
+    border-radius: 10px;
+    min-width: 12px;
+    text-align: center;
+}
+.admin-unread-badge.hidden {
+    display: none !important;
+}
+
+/* iOSでの入力時ズームを防止 */
+input, textarea {
+    font-size: 16px !important;
+}

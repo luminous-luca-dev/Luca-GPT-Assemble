@@ -244,16 +244,12 @@ function setupActiveChat() {
 /* -----------------------------------------
    C. 管理者画面の制御 (?admin=true)
 ----------------------------------------- */
-let isAutoRefreshStarted = false; // 自動更新タイマーの二重起動防止フラグ
+let adminThreadsMap = {};
+let currentAdminThreadId = null;
 
 async function renderAdminScreen(isAutoRefresh = false) {
-    roomNameLabel.textContent = '管理者用ダッシュボード';
-    urlBanner.style.display = 'none';
-    document.getElementById('chat-footer').style.display = 'none';
-    
-    // 初回読み込み時だけ「読み込み中...」を表示（自動更新時の画面チラつきを防止）
-    if (!isAutoRefresh && !timeline.innerHTML) {
-        timeline.innerHTML = '<p style="text-align:center; color:#666;">会話スレッドを読み込み中...</p>';
+    if (!currentAdminThreadId && !isAutoRefresh) {
+        timeline.innerHTML = '<p style="text-align:center; color:#666; padding:20px;">読み込み中...</p>';
     }
 
     // 全メッセージを取得
@@ -263,23 +259,39 @@ async function renderAdminScreen(isAutoRefresh = false) {
         .order('created_at', { ascending: true });
 
     if (error) {
-        if (!isAutoRefresh) timeline.innerHTML = '<p>データの取得に失敗しました。</p>';
+        if (!currentAdminThreadId) timeline.innerHTML = '<p>データの取得に失敗しました。</p>';
         return;
-        }
+    }
 
-    // スレッドごとに発言をグループ化
-    const threadsMap = {};
+    adminThreadsMap = {};
     allMessages.forEach(msg => {
-        if (!threadsMap[msg.thread_id]) {
-            threadsMap[msg.thread_id] = [];
-        }
-        threadsMap[msg.thread_id].push(msg);
+        if (!adminThreadsMap[msg.thread_id]) adminThreadsMap[msg.thread_id] = [];
+        adminThreadsMap[msg.thread_id].push(msg);
     });
 
-    // ★改善1: 各スレッドの「一番最後のメッセージの日時」を比較して新着順（降順）に並び替え
-    const sortedThreadIds = Object.keys(threadsMap).sort((a, b) => {
-        const lastMsgA = threadsMap[a][threadsMap[a].length - 1];
-        const lastMsgB = threadsMap[b][threadsMap[b].length - 1];
+    if (currentAdminThreadId) {
+        // トークを開いたまま裏で更新された場合は中身を再描画
+        openAdminThread(currentAdminThreadId);
+    } else {
+        // リスト画面
+        renderAdminList();
+    }
+}
+
+function renderAdminList() {
+    roomNameLabel.textContent = 'トーク一覧';
+    urlBanner.style.display = 'none';
+    document.getElementById('chat-footer').style.display = 'none';
+    document.querySelector('.header-back').style.visibility = 'hidden'; 
+    
+    timeline.style.padding = '0';
+    timeline.style.gap = '0'; // リスト用の余白リセット
+    timeline.style.backgroundColor = '#fff';
+
+    // 最終メッセージの日時で降順（新しい順）に並び替え
+    const sortedThreadIds = Object.keys(adminThreadsMap).sort((a, b) => {
+        const lastMsgA = adminThreadsMap[a][adminThreadsMap[a].length - 1];
+        const lastMsgB = adminThreadsMap[b][adminThreadsMap[b].length - 1];
         return new Date(lastMsgB.created_at) - new Date(lastMsgA.created_at);
     });
 
@@ -288,64 +300,90 @@ async function renderAdminScreen(isAutoRefresh = false) {
 
     // 並び替えた順（sortedThreadIds）にカードを生成
     sortedThreadIds.forEach(threadId => {
-        const msgs = threadsMap[threadId];
+        const msgs = adminThreadsMap[threadId];
+        const lastMsg = msgs[msgs.length - 1];
         
-        const card = document.createElement('div');
-        card.className = 'admin-thread-card';
-        card.id = `thread-card-${threadId}`;
+        // 最後の発言が相手(user)なら「新着」として赤いバッジを出す
+        const hasNewMsg = lastMsg.sender === 'user';
+        
+        // 時刻のフォーマット (例: 14:30)
+        const timeString = new Date(lastMsg.created_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
-        let historyHtml = '';
-        msgs.forEach(m => {
-            const name = m.sender === 'user' ? '相手' : 'Luca';
-            historyHtml += `<div><strong>${name}:</strong> ${escapeHTML(m.text)}</div>`;
-        });
+        const item = document.createElement('div');
+        item.className = 'admin-list-item';
+        item.onclick = () => openAdminThread(threadId);
 
-        card.innerHTML = `
-            <div class="admin-history">${historyHtml}</div>
-            <div class="admin-reply-box">
-                <textarea id="admin-input-${threadId}" placeholder="Lucaとして返信を入力..."></textarea>
-                <button onclick="sendAdminReply('${threadId}')" style="background:#273246; color:white; border:none; border-radius:6px; padding:0 15px; cursor:pointer;">返信</button>
+        item.innerHTML = `
+            <div class="admin-list-avatar"><i class="fa-solid fa-user"></i></div>
+            <div class="admin-list-content">
+                <div class="admin-list-name">ゲスト (${threadId.slice(0,4)})</div>
+                <div class="admin-list-preview">${escapeHTML(lastMsg.text)}</div>
+            </div>
+            <div class="admin-list-right">
+                <div class="admin-list-time">${timeString}</div>
+                <div class="admin-unread-badge ${hasNewMsg ? '' : 'hidden'}">N</div>
             </div>
         `;
-        fragment.appendChild(card);
+        fragment.appendChild(item);
     });
 
     timeline.innerHTML = '';
     timeline.appendChild(fragment);
-    
     if (sortedThreadIds.length === 0) {
-        timeline.innerHTML = '<p style="text-align:center; color:#666;">まだメッセージはありません。</p>';
+        timeline.innerHTML = '<p style="text-align:center; color:#666; padding:20px;">まだメッセージはありません。</p>';
     }
-
 }
 
-// 管理者からの返信処理
-window.sendAdminReply = async function(threadId) {
-    const input = document.getElementById(`admin-input-${threadId}`);
-    const text = input.value.trim();
-    if (!text) return;
+function openAdminThread(threadId) {
+    currentAdminThreadId = threadId;
+    roomNameLabel.textContent = `ゲスト (${threadId.slice(0,4)})`;
+    document.getElementById('chat-footer').style.display = 'block';
+    document.querySelector('.header-back').style.visibility = 'visible'; 
+    
+    timeline.style.padding = '15px';
+    timeline.style.gap = '7px'; // トークルーム用の余白に戻す
+    timeline.style.backgroundColor = '#b2c7da';
 
-    // 送信ボタンを押した瞬間に、入力欄だけをサッと空にする
-    input.value = '';
+    timeline.innerHTML = '';
+    const msgs = adminThreadsMap[threadId] || [];
+    msgs.forEach(msg => {
+        // ★ポイント：既存のCSSを活かすため、管理者(luca)の送信分を右側(userクラス)にする
+        const senderClass = msg.sender === 'luca' ? 'user' : 'luca'; 
+        const row = document.createElement('div');
+        row.className = `msg-row ${senderClass}`;
+        row.innerHTML = `<div class="msg-bubble">${escapeHTML(msg.text)}</div>`;
+        timeline.appendChild(row);
+    });
+    scrollToBottom();
 
-    // ★ 処理開始！
-    showLoading();
+    // 送信ボタンを管理者用に設定
+    setupAdminSendButton();
+}
 
-    try {
-        const { error } = await supabaseClient
-            .from('chat_messages')
-            .insert([
-                { thread_id: threadId, sender: 'luca', text: text }
+function setupAdminSendButton() {
+    // イベントリスナーの重複を防ぐためボタンを複製して入れ替える
+    const newSendBtn = sendBtn.cloneNode(true);
+    sendBtn.parentNode.replaceChild(newSendBtn, sendBtn);
+    const currentSendBtn = document.getElementById('send-btn');
+
+    currentSendBtn.addEventListener('click', async () => {
+        const text = messageInput.value.trim();
+        if (!text || !currentAdminThreadId) return;
+
+        messageInput.value = '';
+        showLoading();
+
+        try {
+            const { error } = await supabaseClient.from('chat_messages').insert([
+                { thread_id: currentAdminThreadId, sender: 'luca', text: text }
             ]);
 
-        if (error) {
-            alert('返信の送信に失敗しました。');
+            if (error) alert('送信に失敗しました。');
+        } finally {
+            hideLoading();
         }
-    } finally {
-        // ★ 処理完了！
-        hideLoading();
-    }
-};
+    });
+}
 
 function escapeHTML(str) {
     return str.replace(/[&<>'"]/g, tag => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
@@ -519,7 +557,7 @@ function setupUserRealtime(threadId) {
         .subscribe();
 }
 
-// ▼ 管理者用：新着メッセージが来たら該当スレッドに追記
+// ▼ 管理者用：新着メッセージが来たらリストやトークルームを更新
 function setupAdminRealtime() {
     supabaseClient
         .channel('admin-room')
@@ -529,27 +567,22 @@ function setupAdminRealtime() {
             table: 'chat_messages'
         }, payload => {
             const m = payload.new;
-            const threadCard = document.getElementById(`thread-card-${m.thread_id}`);
-            const name = m.sender === 'user' ? '相手' : 'Luca';
-            const msgHtml = `<div><strong>${name}:</strong> ${escapeHTML(m.text)}</div>`;
+            
+            // メモリ上のデータを更新
+            if (!adminThreadsMap[m.thread_id]) adminThreadsMap[m.thread_id] = [];
+            adminThreadsMap[m.thread_id].push(m);
 
-            if (threadCard) {
-                // すでに画面にあるスレッドなら、履歴の一番下にひっそりHTMLを追加
-                const historyDiv = threadCard.querySelector('.admin-history');
-                historyDiv.insertAdjacentHTML('beforeend', msgHtml);
-            } else {
-                // もし全く新しい人からの初回メッセージだった場合、カードを作って一番上に差し込む
-                const card = document.createElement('div');
-                card.className = 'admin-thread-card';
-                card.id = `thread-card-${m.thread_id}`;
-                card.innerHTML = `
-                    <div class="admin-history">${msgHtml}</div>
-                    <div class="admin-reply-box">
-                        <textarea id="admin-input-${m.thread_id}" placeholder="Lucaとして返信を入力..."></textarea>
-                        <button onclick="sendAdminReply('${m.thread_id}')" style="background:#273246; color:white; border:none; border-radius:6px; padding:0 15px; cursor:pointer;">返信</button>
-                    </div>
-                `;
-                timeline.prepend(card);
+            // 現在このスレッドを開いている場合、画面に追記
+            if (currentAdminThreadId === m.thread_id) {
+                const senderClass = m.sender === 'luca' ? 'user' : 'luca';
+                const row = document.createElement('div');
+                row.className = `msg-row ${senderClass}`;
+                row.innerHTML = `<div class="msg-bubble">${escapeHTML(m.text)}</div>`;
+                timeline.appendChild(row);
+                scrollToBottom();
+            } else if (!currentAdminThreadId) {
+                // 一覧画面を開いている場合は、リストを再描画（一番上に持ってくる）
+                renderAdminList();
             }
         })
         .subscribe();
@@ -585,6 +618,13 @@ const backTooltip = document.getElementById('back-tooltip');
 let backTooltipTimer = null;
 
 headerBackBtn.addEventListener('click', () => {
+    // ★追加：管理者モードでトークを開いている時は、一覧に戻る
+    if (isAdmin && currentAdminThreadId) {
+        currentAdminThreadId = null;
+        renderAdminList();
+        return;
+    }
+
     // 吹き出しを表示
     backTooltip.classList.remove('tooltip-hidden');
     
