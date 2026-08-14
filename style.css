@@ -155,7 +155,7 @@ body {
 
 /* ユーザー（相手）のメッセージ（右側） */
 .msg-row.user {
-    justify-content: flex-end;
+    justify-content: flex-start; /* ★ flex-end から flex-start に変更 */
     flex-direction: row-reverse; /* 右寄せの時は、吹き出しを右、時間を左にする */
 }
 
