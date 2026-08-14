@@ -171,7 +171,7 @@ function setupInitialChat() {
 
             // 4. Lucaからの自動返信演出
             setTimeout(async () => {
-                const lucaGreeting = "ﾒｯｾｰｼﾞありがとう！！助かる～\n返事するからURLｺﾋﾟｰしておいて";
+                const lucaGreeting = "ﾒｯｾｰｼﾞありがとう！！助かる～\n返事するからURLｺﾋﾟｰかｱﾌﾟﾘDLかしておいてね";
                 await supabaseClient.from('chat_messages').insert([
                     { thread_id: currentThreadId, sender: 'luca', text: lucaGreeting, is_auto_reply: true }
                 ]);
