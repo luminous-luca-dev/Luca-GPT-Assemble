@@ -70,6 +70,12 @@ async function init() {
         setupPushNotifications(currentThreadId);
         setupUserRealtime(currentThreadId); // ★ここに追加！
     } else {
+        // ▼ 変更：初めてアクセスした状態（タイムラインに初期メッセージをセット）
+        timeline.innerHTML = `
+            <div class="msg-row luca">
+                <div class="msg-bubble">相談でも質問でも、しょーもない話でも何でもOK！\n自由に送ってみてね</div>
+            </div>
+        `;
         // 初めてアクセスした状態（最初の1通目を待つ）
         setupInitialChat();
     }
@@ -184,7 +190,12 @@ function setupInitialChat() {
    B. 2回目以降、またはURLから開いた時の設定
 ----------------------------------------- */
 async function loadChatHistory(id) {
-    timeline.innerHTML = '';
+    // ▼ 変更：空にするのではなく、初期メッセージをセットしておく
+    timeline.innerHTML = `
+        <div class="msg-row luca">
+            <div class="msg-bubble">相談でも質問でも、しょーもない話でも何でもOK！\n自由に送ってみてね</div>
+        </div>
+    `;
     const { data, error } = await supabaseClient
         .from('chat_messages')
         .select('*')
@@ -342,7 +353,12 @@ function openAdminThread(threadId) {
     timeline.style.gap = '7px'; // トークルーム用の余白に戻す
     timeline.style.backgroundColor = '#b2c7da';
 
-    timeline.innerHTML = '';
+    // ▼ 変更：初期メッセージを管理者側（右寄り・緑色）としてセット
+    timeline.innerHTML = `
+        <div class="msg-row user">
+            <div class="msg-bubble">相談でも質問でも、しょーもない話でも何でもOK！\n自由に送ってみてね</div>
+        </div>
+    `;
     const msgs = adminThreadsMap[threadId] || [];
     msgs.forEach(msg => {
         // ★ポイント：既存のCSSを活かすため、管理者(luca)の送信分を右側(userクラス)にする
