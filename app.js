@@ -1,32 +1,3 @@
-/* -----------------------------------------
-   E. iOSアプリ内ブラウザ（In-App Browser）対策
-   （※一番上に配置して、ページ読み込み直後に即チェックする）
------------------------------------------ */
-function checkAndRedirectSafari() {
-    const ua = navigator.userAgent.toLowerCase();
-    const isIOS = /iphone|ipad|ipod/.test(ua);
-    if (!isIOS) return; 
-
-    const isLine = ua.includes('line');
-    const isTwitter = ua.includes('twitter');
-    const isInstagram = ua.includes('instagram');
-    const isFacebook = ua.includes('fbav') || ua.includes('fban');
-
-    if (isLine || isTwitter || isInstagram || isFacebook) {
-        if (isLine) {
-            if (!window.location.search.includes('openExternalBrowser=1')) {
-                const newUrl = new URL(window.location.href);
-                newUrl.searchParams.set('openExternalBrowser', '1');
-                window.location.href = newUrl.href;
-                return;
-            }
-        } else {
-            document.getElementById('iab-warning').classList.remove('hidden');
-        }
-    }
-}
-checkAndRedirectSafari();
-
 // Supabaseの接続情報（メモした情報に書き換えてください）
 const SUPABASE_URL = 'https://kslcxmfmzwgmuxsrnjrb.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_HzbTleN2spmfwE8neINPKw_TxHP80ob';
@@ -459,14 +430,44 @@ function setupPWA(threadId) {
     document.head.appendChild(appleIcon);
 
     const installBtn = document.getElementById('install-btn');
-    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+    const ua = navigator.userAgent.toLowerCase();
+    const isIOS = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
 
-    if (isIOS) {
+    // ▼ アプリ内ブラウザ（IAB）かどうかの判定を追加
+    const isLine = ua.includes('line');
+    const isTwitter = ua.includes('twitter');
+    const isInstagram = ua.includes('instagram');
+    const isFacebook = ua.includes('fbav') || ua.includes('fban');
+    const isIAB = isLine || isTwitter || isInstagram || isFacebook;
+
+    // アプリ内ブラウザ（OS問わず）または iOSの標準ブラウザの場合はボタンを最初から表示する
+    if (isIOS || isIAB) {
         installBtn.classList.remove('hidden');
+        
         installBtn.addEventListener('click', () => {
-            document.getElementById('ios-install-modal').classList.remove('hidden');
+            // ① アプリ内ブラウザ（インスタやXなど）の場合
+            if (isIAB) {
+                if (isLine) {
+                    // LINEの場合はURLパラメータで外部ブラウザ起動を強制する
+                    if (!window.location.search.includes('openExternalBrowser=1')) {
+                        const newUrl = new URL(window.location.href);
+                        newUrl.searchParams.set('openExternalBrowser', '1');
+                        window.location.href = newUrl.href;
+                    }
+                } else {
+                    // それ以外のSNSは案内モーダルを出す
+                    document.getElementById('iab-warning').classList.remove('hidden');
+                }
+                return; // ここで処理を終わらせる
+            }
+
+            // ② IABではない標準Safari（iOS）の場合
+            if (isIOS) {
+                document.getElementById('ios-install-modal').classList.remove('hidden');
+            }
         });
     } else {
+        // ③ AndroidやPCの標準ブラウザの場合
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault(); 
             deferredPrompt = e; 
