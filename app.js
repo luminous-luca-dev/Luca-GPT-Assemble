@@ -750,3 +750,17 @@ pushToggle.addEventListener('change', (e) => {
         }
     });
 });
+
+/* =========================================
+   追加：Android等でのキーボード表示時のスクロール調整
+========================================= */
+const androidFixInput = document.getElementById('message-input');
+if (androidFixInput) {
+    androidFixInput.addEventListener('focus', () => {
+        setTimeout(() => {
+            if (typeof scrollToBottom === 'function') {
+                scrollToBottom();
+            }
+        }, 300);
+    });
+}

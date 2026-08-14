@@ -6,6 +6,7 @@ body {
     display: flex;
     justify-content: center;
     height: 100vh;
+    height: 100dvh;     /* キーボード開閉に合わせて自動追従する高さ */
     color: #111;
 }
 
