@@ -131,6 +131,15 @@ body {
 .msg-row {
     display: flex;
     width: 100%;
+    align-items: flex-end; /* 吹き出しの下側と時間を揃える */
+    gap: 4px; /* 吹き出しと時間の隙間 */
+}
+
+.msg-time {
+    font-size: 0.65rem;
+    color: #777;
+    white-space: nowrap;
+    margin-bottom: 2px; /* 少しだけ上に浮かせてバランスを取る */
 }
 
 .msg-bubble {
@@ -147,6 +156,7 @@ body {
 /* ユーザー（相手）のメッセージ（右側） */
 .msg-row.user {
     justify-content: flex-end;
+    flex-direction: row-reverse; /* 右寄せの時は、吹き出しを右、時間を左にする */
 }
 
 .msg-row.user .msg-bubble {

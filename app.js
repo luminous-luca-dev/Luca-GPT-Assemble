@@ -54,6 +54,24 @@ function hideLoading() {
     loadingOverlay.classList.add('hidden');
 }
 
+// 日時フォーマット関数（例: 14:30）
+function formatTime(dateString) {
+    if (!dateString) return '';
+    const d = new Date(dateString);
+    return d.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+}
+
+// スレッドIDからパステルカラーを生成する関数
+function getPastelColor(id) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    // HSLカラーの「色相(0〜360)」をIDから決定し、彩度70%・明度80%でパステル調にする
+    const hue = Math.abs(hash % 360);
+    return `hsl(${hue}, 70%, 80%)`;
+}
+
 /* -----------------------------------------
    Service Worker の登録
 ----------------------------------------- */
@@ -92,10 +110,16 @@ function scrollToBottom() {
 }
 
 // メッセージを画面に描画する
-function appendMessageToTimeline(sender, text) {
+function appendMessageToTimeline(sender, text, createdAt = new Date().toISOString()) {
+    const timeString = formatTime(createdAt);
     const row = document.createElement('div');
     row.className = `msg-row ${sender}`;
-    row.innerHTML = `<div class="msg-bubble">${escapeHTML(text)}</div>`;
+    
+    // 自分の発言(user)はCSSの row-reverse で左右反転させているので、HTML上の順番は同じでOK
+    row.innerHTML = `
+        <div class="msg-bubble">${escapeHTML(text)}</div>
+        <div class="msg-time">${timeString}</div>
+    `;
     timeline.appendChild(row);
     scrollToBottom();
 }
@@ -199,7 +223,7 @@ async function loadChatHistory(id) {
     if (error) return;
 
     data.forEach(msg => {
-        appendMessageToTimeline(msg.sender, msg.text);
+        appendMessageToTimeline(msg.sender, msg.text, msg.created_at);
     });
 }
 
@@ -309,12 +333,15 @@ function renderAdminList() {
         // 時刻のフォーマット (例: 14:30)
         const timeString = new Date(lastMsg.created_at).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
+        // ★追加：IDからパステルカラーを取得
+        const avatarColor = getPastelColor(threadId);
+
         const item = document.createElement('div');
         item.className = 'admin-list-item';
         item.onclick = () => openAdminThread(threadId);
 
         item.innerHTML = `
-            <div class="admin-list-avatar"><i class="fa-solid fa-user"></i></div>
+            <div class="admin-list-avatar" style="background-color: ${avatarColor};"><i class="fa-solid fa-user"></i></div>
             <div class="admin-list-content">
                 <div class="admin-list-name">ゲスト (${threadId.slice(0,4)})</div>
                 <div class="admin-list-preview">${escapeHTML(lastMsg.text)}</div>
@@ -349,9 +376,14 @@ function openAdminThread(threadId) {
     msgs.forEach(msg => {
         // ★ポイント：既存のCSSを活かすため、管理者(luca)の送信分を右側(userクラス)にする
         const senderClass = msg.sender === 'luca' ? 'user' : 'luca'; 
+        const timeString = formatTime(msg.created_at); // ★追加
         const row = document.createElement('div');
         row.className = `msg-row ${senderClass}`;
-        row.innerHTML = `<div class="msg-bubble">${escapeHTML(msg.text)}</div>`;
+        // ★時間をHTMLに追加
+        row.innerHTML = `
+            <div class="msg-bubble">${escapeHTML(msg.text)}</div>
+            <div class="msg-time">${timeString}</div>
+        `;
         timeline.appendChild(row);
     });
     scrollToBottom();
@@ -575,9 +607,13 @@ function setupAdminRealtime() {
             // 現在このスレッドを開いている場合、画面に追記
             if (currentAdminThreadId === m.thread_id) {
                 const senderClass = m.sender === 'luca' ? 'user' : 'luca';
+                const timeString = formatTime(m.created_at); // ★追加
                 const row = document.createElement('div');
                 row.className = `msg-row ${senderClass}`;
-                row.innerHTML = `<div class="msg-bubble">${escapeHTML(m.text)}</div>`;
+                row.innerHTML = `
+                    <div class="msg-bubble">${escapeHTML(m.text)}</div>
+                    <div class="msg-time">${timeString}</div>
+                `;
                 timeline.appendChild(row);
                 scrollToBottom();
             } else if (!currentAdminThreadId) {
