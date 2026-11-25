@@ -144,12 +144,14 @@ async function switchModel() {
     }
 }
 
-function ensureConversationId() {
+async function ensureConversationId() {
     if (!conversationId) {
-        if (!window.crypto || !window.crypto.randomUUID) {
-            throw new Error('このブラウザーでは安全な会話IDを作成できません。');
+        const response = await fetch('/api/conversations', { method: 'POST' });
+        const result = await response.json();
+        if (!response.ok || typeof result.conversation_id !== 'string') {
+            throw new Error(result.detail || '会話IDを作成できませんでした。');
         }
-        conversationId = window.crypto.randomUUID();
+        conversationId = result.conversation_id;
         const url = new URL(window.location.href);
         url.searchParams.set('id', conversationId);
         window.history.replaceState(null, '', url);
@@ -187,7 +189,7 @@ async function sendMessage(event) {
     messageInput.value = '';
 
     try {
-        ensureConversationId();
+        await ensureConversationId();
         appendMessage('user', text, new Date().toISOString());
 
         const response = await fetch('/api/chat', {

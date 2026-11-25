@@ -6,7 +6,7 @@ from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Literal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -142,7 +142,10 @@ app.add_middleware(
 
 @app.get("/")
 async def home():
-    return FileResponse(APP_ROOT / "local-chat.html")
+    return FileResponse(
+        APP_ROOT / "local-chat.html",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @app.get("/local-chat.css")
@@ -155,6 +158,7 @@ async def local_chat_js():
     return FileResponse(
         APP_ROOT / "local-chat.js",
         media_type="application/javascript",
+        headers={"Cache-Control": "no-store"},
     )
 
 
@@ -167,6 +171,11 @@ async def health():
         "device": app.state.model_device,
         "storage_ready": bool(SUPABASE_URL and SUPABASE_SECRET_KEY),
     }
+
+
+@app.post("/api/conversations")
+async def create_conversation():
+    return {"conversation_id": str(uuid4())}
 
 
 @app.get("/api/models")

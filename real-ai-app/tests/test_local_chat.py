@@ -167,6 +167,11 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             "luca_gpt_05_single_4B",
         )
 
+    async def test_create_conversation_returns_uuid4(self):
+        result = await local_chat.create_conversation()
+
+        self.assertEqual(uuid.UUID(result["conversation_id"]).version, 4)
+
     async def test_model_list_uses_gguf_parent_directory_as_label(self):
         with tempfile.TemporaryDirectory() as directory:
             model_path = Path(directory) / "luca_gpt_test_4B_gguf" / "model.gguf"
