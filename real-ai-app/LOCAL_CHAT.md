@@ -19,10 +19,13 @@ in `real-ai-app/.env` (ignored by Git). Copy it from the project's Settings > AP
 Never put this key in browser code or commit it. The legacy
 `SUPABASE_SERVICE_ROLE_KEY` environment variable is also accepted.
 
-Run the SQL in
+If the `aichat_messages` table has not been created yet, run
 `../supabase/migrations/20261125145000_create_local_chat_messages.sql` in the
-Supabase SQL Editor to create the dedicated message table. If the equivalent
-SQL for `aichat_messages` has already been applied, no additional SQL is needed.
+Supabase SQL Editor first. Then run
+`../supabase/migrations/20261126010000_add_aichat_rooms.sql` to add owner IDs and
+room numbers and connect existing messages to rooms. This SQL also upgrades the
+earlier room-table version if it was already applied: existing room IDs become
+their owner IDs, and those rooms are assigned number 1.
 
 Start the chat server from `real-ai-app`:
 
@@ -61,6 +64,13 @@ Relative model paths are resolved from the repository root.
 
 ## Switching models
 
+Open the hamburger button on the left side of the chat header to view and
+switch between saved talk rooms, or create a new chat. The `id` URL parameter
+identifies the room owner and stays the same when new rooms are created; the
+`room` parameter selects that owner's room number. If `id` is missing, the
+server creates one and adds it to the URL. A room title is set from its first
+user message.
+
 Open the gear button in the chat header to access settings. There you can
 switch between GGUF files under the repository's `models/` directory; the
 displayed model name comes from its parent directory. Only one model is kept
@@ -78,10 +88,12 @@ default can be changed to conversation mode with
 
 ## Message storage
 
-Messages use the dedicated `aichat_messages` table. The local FastAPI server
-reads and writes user messages, model replies, and conversation history using
-the service role key from `real-ai-app/.env`; the browser never receives this key. Each
-conversation is identified by the `?id=` URL parameter.
+Rooms use `aichat_rooms`, and user messages and model replies use
+`aichat_messages`. The local FastAPI server reads and writes both using the
+service role key from `real-ai-app/.env`; the browser never receives this key.
+The room list is filtered by the UUID in `?id=`, and `?room=` selects a room
+number. This is URL-based separation, not authentication: anyone who learns an
+`id` can open that owner's rooms, so do not treat it as private or secure.
 
 The chat header shows whether inference is running on CPU or GPU. If a CUDA
 machine shows `CPU`, reinstall the CUDA wheel:

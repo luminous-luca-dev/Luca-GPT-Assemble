@@ -56,6 +56,8 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             None,
         )
         self.original_context_mode = local_chat.CHAT_CONTEXT_MODE
+        self.owner_id = uuid.uuid4()
+        self.room_id = uuid.uuid4()
         local_chat.app.state.model_path = local_chat.MODEL_PATH
         local_chat.CHAT_CONTEXT_MODE = "single-turn"
         local_chat.SUPABASE_URL = "https://example.supabase.co"
@@ -71,11 +73,22 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         local_chat.app.state.model_error = self.original_model_error
         local_chat.CHAT_CONTEXT_MODE = self.original_context_mode
 
+    def make_chat_request(self, message, **kwargs):
+        return local_chat.ChatRequest(
+            owner_id=self.owner_id,
+            room_number=1,
+            message=message,
+            **kwargs,
+        )
+
     async def test_chat_loads_history_and_persists_both_messages(self):
-        conversation_id = uuid.uuid4()
         stored = []
 
-        async def fake_request(method, *, params=None, payload=None):
+        async def fake_request(
+            method, *, table="aichat_messages", params=None, payload=None
+        ):
+            if table == "aichat_rooms":
+                return [{"id": str(self.room_id)}]
             if method == "GET":
                 return [
                     {"sender": "user", "content": "前の発言"},
@@ -90,10 +103,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         local_chat.CHAT_CONTEXT_MODE = "conversation"
 
         result = await local_chat.chat(
-            local_chat.ChatRequest(
-                conversation_id=conversation_id,
-                message="今の発言",
-            )
+            self.make_chat_request("今の発言")
         )
 
         self.assertEqual(result["reply"], "こんにちは！")
@@ -110,27 +120,30 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_single_turn_chat_does_not_read_or_send_previous_messages(self):
         requests = []
 
-        async def fake_request(method, *, params=None, payload=None):
-            requests.append(method)
+        async def fake_request(
+            method, *, table="aichat_messages", params=None, payload=None
+        ):
+            requests.append((table, method))
+            if table == "aichat_rooms":
+                return [{"id": str(self.room_id)}]
             if method == "GET":
-                return [
-                    {"sender": "user", "content": "無視する過去の質問"},
-                    {"sender": "assistant", "content": "無視する過去の回答"},
-                ]
+                return []
             return [{"created_at": "2026-11-25T00:00:00+00:00"}]
 
         model = FakeModel()
         local_chat.supabase_request = fake_request
         local_chat.app.state.llm = model
 
-        await local_chat.chat(
-            local_chat.ChatRequest(
-                conversation_id=uuid.uuid4(),
-                message="今回の質問",
-            )
-        )
+        await local_chat.chat(self.make_chat_request("今回の質問"))
 
-        self.assertEqual(requests, ["POST", "POST"])
+        self.assertEqual(
+            requests,
+            [
+                ("aichat_rooms", "GET"),
+                ("aichat_messages", "POST"),
+                ("aichat_messages", "POST"),
+            ],
+        )
         self.assertEqual(
             model.messages,
             [
@@ -143,7 +156,11 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_chat_can_enable_context_per_request(self):
-        async def fake_request(method, *, params=None, payload=None):
+        async def fake_request(
+            method, *, table="aichat_messages", params=None, payload=None
+        ):
+            if table == "aichat_rooms":
+                return [{"id": str(self.room_id)}]
             if method == "GET":
                 return [
                     {"sender": "user", "content": "前の質問"},
@@ -156,11 +173,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         local_chat.app.state.llm = model
 
         await local_chat.chat(
-            local_chat.ChatRequest(
-                conversation_id=uuid.uuid4(),
-                message="今回の質問",
-                use_context=True,
-            )
+            self.make_chat_request("今回の質問", use_context=True)
         )
 
         self.assertEqual(
@@ -175,7 +188,11 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_model_failure_leaves_the_user_message_saved(self):
         stored = []
 
-        async def fake_request(method, *, params=None, payload=None):
+        async def fake_request(
+            method, *, table="aichat_messages", params=None, payload=None
+        ):
+            if table == "aichat_rooms":
+                return [{"id": str(self.room_id)}]
             if method == "GET":
                 return []
             stored.extend(payload)
@@ -187,10 +204,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         with self.assertLogs(local_chat.logger, level="ERROR"):
             with self.assertRaises(HTTPException) as raised:
                 await local_chat.chat(
-                    local_chat.ChatRequest(
-                        conversation_id=uuid.uuid4(),
-                        message="今の発言",
-                    )
+                    self.make_chat_request("今の発言")
                 )
 
         self.assertEqual(raised.exception.status_code, 500)
@@ -199,7 +213,11 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
     async def test_stream_chat_sends_incremental_chunks_and_persists_reply(self):
         stored = []
 
-        async def fake_request(method, *, params=None, payload=None):
+        async def fake_request(
+            method, *, table="aichat_messages", params=None, payload=None
+        ):
+            if table == "aichat_rooms":
+                return [{"id": str(self.room_id)}]
             if method == "GET":
                 return []
             stored.extend(payload)
@@ -208,10 +226,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         local_chat.supabase_request = fake_request
         local_chat.app.state.llm = FakeModel()
         response = await local_chat.chat_stream(
-            local_chat.ChatRequest(
-                conversation_id=uuid.uuid4(),
-                message="こんにちは",
-            )
+            self.make_chat_request("こんにちは")
         )
 
         events = []
@@ -259,6 +274,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
                 "GET",
                 params={"conversation_id": "eq.test"},
             )
+            await local_chat.supabase_request("GET", table="aichat_rooms")
 
         self.assertEqual(result, [{"ok": True}])
         method, url, headers, params, _ = requests[0]
@@ -267,6 +283,10 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(headers["apikey"], "test-key")
         self.assertEqual(headers["Authorization"], "Bearer test-key")
         self.assertEqual(params, {"conversation_id": "eq.test"})
+        self.assertEqual(
+            requests[1][1],
+            "https://example.supabase.co/rest/v1/aichat_rooms",
+        )
 
     async def test_model_label_uses_parent_directory_not_file_name(self):
         self.assertEqual(
@@ -274,10 +294,92 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             "luca_gpt_05_single_4B",
         )
 
-    async def test_create_conversation_returns_uuid4(self):
-        result = await local_chat.create_conversation()
+    async def test_create_first_room_generates_owner_id_and_room_number_one(self):
+        requests = []
 
-        self.assertEqual(uuid.UUID(result["conversation_id"]).version, 4)
+        async def fake_request(method, *, table, params=None, payload=None):
+            requests.append((method, table, params, payload))
+            if method == "GET":
+                return []
+            created = dict(payload[0], room_number=1)
+            return [created]
+
+        local_chat.supabase_request = fake_request
+        result = await local_chat.create_conversation(
+            local_chat.ConversationCreationRequest()
+        )
+
+        self.assertEqual(uuid.UUID(result["owner_id"]).version, 4)
+        self.assertEqual(result["room_number"], 1)
+        self.assertEqual(
+            [(request[0], request[1]) for request in requests],
+            [("GET", "aichat_rooms"), ("POST", "aichat_rooms")],
+        )
+        self.assertEqual(
+            requests[1][3][0]["owner_id"],
+            result["owner_id"],
+        )
+        self.assertEqual(requests[1][3][0]["room_number"], "1")
+
+    async def test_create_room_keeps_owner_id_and_increments_room_number(self):
+        owner_id = uuid.uuid4()
+
+        async def fake_request(method, *, table, params=None, payload=None):
+            if method == "GET":
+                self.assertEqual(params["owner_id"], f"eq.{owner_id}")
+                return [{"room_number": 3}]
+            return [dict(payload[0], room_number=4)]
+
+        local_chat.supabase_request = fake_request
+        result = await local_chat.create_conversation(
+            local_chat.ConversationCreationRequest(owner_id=owner_id)
+        )
+
+        self.assertEqual(result["owner_id"], str(owner_id))
+        self.assertEqual(result["room_number"], 4)
+
+    async def test_list_conversations_filters_by_owner_id(self):
+        owner_id = uuid.uuid4()
+
+        async def fake_request(method, *, table, params=None, payload=None):
+            self.assertEqual(method, "GET")
+            self.assertEqual(table, "aichat_rooms")
+            self.assertEqual(params["owner_id"], f"eq.{owner_id}")
+            self.assertEqual(params["order"], "room_number.asc")
+            return [
+                {
+                    "room_number": 2,
+                    "title": "新しい質問",
+                    "updated_at": "2026-11-26T00:00:00+00:00",
+                }
+            ]
+
+        local_chat.supabase_request = fake_request
+        result = await local_chat.list_conversations(owner_id)
+
+        self.assertEqual(
+            result,
+            [
+                {
+                    "room_number": 2,
+                    "title": "新しい質問",
+                    "updated_at": "2026-11-26T00:00:00+00:00",
+                }
+            ],
+        )
+
+    async def test_cannot_read_a_room_outside_the_owner_id(self):
+        async def fake_request(method, *, table, params=None, payload=None):
+            self.assertEqual(table, "aichat_rooms")
+            self.assertEqual(params["owner_id"], f"eq.{self.owner_id}")
+            self.assertEqual(params["room_number"], "eq.2")
+            return []
+
+        local_chat.supabase_request = fake_request
+        with self.assertRaises(HTTPException) as raised:
+            await local_chat.load_conversation(2, self.owner_id)
+
+        self.assertEqual(raised.exception.status_code, 404)
 
     async def test_model_list_uses_gguf_parent_directory_as_label(self):
         with tempfile.TemporaryDirectory() as directory:

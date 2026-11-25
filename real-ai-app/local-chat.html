@@ -11,10 +11,14 @@
 <body>
     <main id="chat-app">
         <header id="chat-header">
+            <button id="room-menu-button" type="button" aria-label="トークルーム一覧を開く"
+                aria-haspopup="dialog" aria-controls="room-dialog">
+                <i class="fa-solid fa-bars" aria-hidden="true"></i>
+            </button>
             <div class="header-info">
                 <span class="avatar" aria-hidden="true">N</span>
                 <div class="header-copy">
-                    <h1 class="room-name">Chat-NGT</h1>
+                    <h1 id="room-name" class="room-name">Chat-NGT</h1>
                     <p id="model-status" role="status">ローカルモデルに接続中...</p>
                 </div>
             </div>
@@ -42,6 +46,19 @@
             <p class="footer-note">より性能を上げるため会話は保存されます</p>
         </footer>
     </main>
+    <dialog id="room-dialog" aria-labelledby="room-dialog-title">
+        <div class="room-dialog-header">
+            <h2 id="room-dialog-title">トークルーム</h2>
+            <button id="room-dialog-close" type="button" aria-label="トークルーム一覧を閉じる">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+        </div>
+        <button id="new-room-button" type="button">
+            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+            新しいチャット
+        </button>
+        <nav id="room-list" aria-label="トークルーム一覧"></nav>
+    </dialog>
     <dialog id="settings-dialog" aria-labelledby="settings-title">
         <div class="settings-header">
             <h2 id="settings-title">設定</h2>

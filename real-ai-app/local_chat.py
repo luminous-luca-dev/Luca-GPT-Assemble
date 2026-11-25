@@ -120,12 +120,18 @@ def allowed_hosts() -> list[str]:
 
 logger = logging.getLogger("local_chat")
 model_lock = Lock()
+room_creation_lock = asyncio.Lock()
 
 
 class ChatRequest(BaseModel):
-    conversation_id: UUID
+    owner_id: UUID
+    room_number: int = Field(ge=1)
     message: str = Field(min_length=1, max_length=4000)
     use_context: bool | None = None
+
+
+class ConversationCreationRequest(BaseModel):
+    owner_id: UUID | None = None
 
 
 class ModelSelectionRequest(BaseModel):
@@ -190,8 +196,99 @@ async def health():
 
 
 @app.post("/api/conversations")
-async def create_conversation():
-    return {"conversation_id": str(uuid4())}
+async def create_conversation(request: ConversationCreationRequest):
+    async with room_creation_lock:
+        owner_id = request.owner_id or uuid4()
+        existing_rooms = await supabase_request(
+            "GET",
+            table="aichat_rooms",
+            params={
+                "select": "room_number",
+                "owner_id": f"eq.{owner_id}",
+                "order": "room_number.desc",
+                "limit": "1",
+            },
+        )
+        if not isinstance(existing_rooms, list):
+            raise HTTPException(
+                status_code=502,
+                detail="トークルーム一覧を読み込めませんでした。",
+            )
+        room_number = 1
+        if existing_rooms:
+            latest_room = existing_rooms[0]
+            if (
+                not isinstance(latest_room, dict)
+                or not isinstance(latest_room.get("room_number"), int)
+                or latest_room["room_number"] < 1
+            ):
+                raise HTTPException(
+                    status_code=502,
+                    detail="トークルーム番号を読み込めませんでした。",
+                )
+            room_number = latest_room["room_number"] + 1
+
+        rows = await supabase_request(
+            "POST",
+            table="aichat_rooms",
+            payload=[
+                {
+                    "id": str(uuid4()),
+                    "owner_id": str(owner_id),
+                    "room_number": str(room_number),
+                    "title": "新しいチャット",
+                }
+            ],
+        )
+        if (
+            not isinstance(rows, list)
+            or not rows
+            or not isinstance(rows[0], dict)
+            or rows[0].get("owner_id") != str(owner_id)
+            or rows[0].get("room_number") != room_number
+        ):
+            raise HTTPException(
+                status_code=502,
+                detail="トークルームを作成できませんでした。",
+            )
+
+    return {
+        "owner_id": str(owner_id),
+        "room_number": room_number,
+        "title": "新しいチャット",
+    }
+
+
+@app.get("/api/conversations")
+async def list_conversations(owner_id: UUID):
+    rows = await supabase_request(
+        "GET",
+        table="aichat_rooms",
+        params={
+            "select": "room_number,title,updated_at",
+            "owner_id": f"eq.{owner_id}",
+            "order": "room_number.asc",
+        },
+    )
+    if not isinstance(rows, list) or any(
+        not isinstance(row, dict)
+        or not all(key in row for key in ("room_number", "title", "updated_at"))
+        or not isinstance(row["room_number"], int)
+        or row["room_number"] < 1
+        for row in rows
+    ):
+        raise HTTPException(
+            status_code=502,
+            detail="トークルーム一覧を読み込めませんでした。",
+        )
+    return [
+        {
+            "room_number": row["room_number"],
+            "title": row["title"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
 
 
 @app.get("/api/settings")
@@ -277,6 +374,7 @@ async def select_model(request: ModelSelectionRequest):
 async def supabase_request(
     method: str,
     *,
+    table: Literal["aichat_messages", "aichat_rooms"] = "aichat_messages",
     params: dict[str, str] | None = None,
     payload: list[dict[str, str]] | None = None,
 ):
@@ -295,7 +393,7 @@ async def supabase_request(
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.request(
                 method,
-                f"{SUPABASE_URL}/rest/v1/aichat_messages",
+                f"{SUPABASE_URL}/rest/v1/{table}",
                 headers=headers,
                 params=params,
                 json=payload,
@@ -334,6 +432,38 @@ async def get_conversation_messages(conversation_id: UUID):
     return messages
 
 
+async def get_conversation_id(owner_id: UUID, room_number: int) -> UUID:
+    rows = await supabase_request(
+        "GET",
+        table="aichat_rooms",
+        params={
+            "select": "id",
+            "owner_id": f"eq.{owner_id}",
+            "room_number": f"eq.{room_number}",
+            "limit": "1",
+        },
+    )
+    if not isinstance(rows, list):
+        raise HTTPException(
+            status_code=502,
+            detail="トークルームを確認できませんでした。",
+        )
+    if not rows:
+        raise HTTPException(status_code=404, detail="トークルームが見つかりません。")
+    if not isinstance(rows[0], dict) or not isinstance(rows[0].get("id"), str):
+        raise HTTPException(
+            status_code=502,
+            detail="トークルームの情報を読み込めませんでした。",
+        )
+    try:
+        return UUID(rows[0]["id"])
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="トークルームのIDが不正です。",
+        ) from exc
+
+
 async def insert_conversation_message(
     conversation_id: UUID,
     sender: Literal["user", "assistant"],
@@ -357,8 +487,11 @@ async def insert_conversation_message(
     return rows[0]["created_at"]
 
 
-@app.get("/api/conversations/{conversation_id}/messages")
-async def load_conversation(conversation_id: UUID):
+@app.get("/api/conversations/{room_number}/messages")
+async def load_conversation(room_number: int, owner_id: UUID):
+    if room_number < 1:
+        raise HTTPException(status_code=404, detail="トークルームが見つかりません。")
+    conversation_id = await get_conversation_id(owner_id, room_number)
     return await get_conversation_messages(conversation_id)
 
 
@@ -415,7 +548,11 @@ def generate_reply(messages: list[dict[str, str]]) -> str:
 
 async def prepare_chat(
     request: ChatRequest,
-) -> tuple[list[dict[str, str]], str]:
+) -> tuple[list[dict[str, str]], str, UUID]:
+    conversation_id = await get_conversation_id(
+        request.owner_id,
+        request.room_number,
+    )
     messages = [
         {
             "role": "system",
@@ -426,7 +563,7 @@ async def prepare_chat(
     if use_context is None:
         use_context = CHAT_CONTEXT_MODE == "conversation"
     if use_context:
-        history = await get_conversation_messages(request.conversation_id)
+        history = await get_conversation_messages(conversation_id)
         messages.extend(
             {
                 "role": "user" if message["sender"] == "user" else "assistant",
@@ -436,12 +573,12 @@ async def prepare_chat(
         )
 
     user_created_at = await insert_conversation_message(
-        request.conversation_id,
+        conversation_id,
         "user",
         request.message,
     )
     messages.append({"role": "user", "content": request.message})
-    return messages, user_created_at
+    return messages, user_created_at, conversation_id
 
 
 def sse_event(event: dict[str, str]) -> str:
@@ -457,7 +594,7 @@ async def chat(request: ChatRequest):
             detail=app.state.model_error or "モデルを読み込めませんでした。",
         )
 
-    messages, user_created_at = await prepare_chat(request)
+    messages, user_created_at, conversation_id = await prepare_chat(request)
 
     try:
         reply = await run_in_threadpool(generate_reply, messages)
@@ -470,7 +607,7 @@ async def chat(request: ChatRequest):
 
     try:
         assistant_created_at = await insert_conversation_message(
-            request.conversation_id,
+            conversation_id,
             "assistant",
             reply,
         )
@@ -495,7 +632,7 @@ async def chat_stream(request: ChatRequest):
             detail=app.state.model_error or "モデルを読み込めませんでした。",
         )
 
-    messages, _ = await prepare_chat(request)
+    messages, _, conversation_id = await prepare_chat(request)
 
     async def events():
         reply_parts = []
@@ -518,7 +655,7 @@ async def chat_stream(request: ChatRequest):
 
         try:
             assistant_created_at = await insert_conversation_message(
-                request.conversation_id,
+                conversation_id,
                 "assistant",
                 reply,
             )

@@ -3,6 +3,12 @@ const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const modelStatus = document.getElementById('model-status');
+const roomName = document.getElementById('room-name');
+const roomMenuButton = document.getElementById('room-menu-button');
+const roomDialog = document.getElementById('room-dialog');
+const roomDialogClose = document.getElementById('room-dialog-close');
+const newRoomButton = document.getElementById('new-room-button');
+const roomList = document.getElementById('room-list');
 const modelSelect = document.getElementById('model-select');
 const settingsButton = document.getElementById('settings-button');
 const settingsDialog = document.getElementById('settings-dialog');
@@ -10,9 +16,16 @@ const settingsClose = document.getElementById('settings-close');
 const contextToggle = document.getElementById('context-toggle');
 const settingsStatus = document.getElementById('settings-status');
 const errorBox = document.getElementById('chat-error');
-const conversationParam = new URLSearchParams(window.location.search).get('id');
+const urlParams = new URLSearchParams(window.location.search);
+const ownerParam = urlParams.get('id');
+const roomParam = Number(urlParams.get('room'));
 
-let conversationId = conversationParam;
+let ownerId = ownerParam;
+let roomNumber = Number.isSafeInteger(roomParam) && roomParam > 0
+    ? roomParam
+    : null;
+let conversations = [];
+let roomReady = false;
 let chatReady = false;
 let settingsLoaded = false;
 let modelCount = 0;
@@ -20,10 +33,15 @@ let isSending = false;
 let isSwitchingModel = false;
 
 function updateControls() {
-    sendBtn.disabled = !chatReady || !settingsLoaded || isSending || isSwitchingModel;
+    sendBtn.disabled = !chatReady || !settingsLoaded || !roomReady || isSending || isSwitchingModel;
     messageInput.disabled = isSending || isSwitchingModel;
     modelSelect.disabled = modelCount === 0 || isSending || isSwitchingModel;
     contextToggle.disabled = !settingsLoaded || isSending || isSwitchingModel;
+    roomMenuButton.disabled = isSending;
+    newRoomButton.disabled = isSending;
+    roomList.querySelectorAll('button').forEach((button) => {
+        button.disabled = isSending;
+    });
 }
 
 function showError(message) {
@@ -64,6 +82,146 @@ function appendMessage(sender, text, createdAt) {
     timeline.appendChild(row);
     timeline.scrollTop = timeline.scrollHeight;
     return { row, bubble, time };
+}
+
+function showWelcomeMessage() {
+    appendMessage('assistant', 'こんにちは！学習したモデルとローカルで会話できます。');
+}
+
+function renderConversations() {
+    roomList.replaceChildren();
+    conversations.forEach((conversation) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'room-list-item';
+        button.textContent = `ルーム${conversation.room_number} - ${conversation.title}`;
+        if (conversation.room_number === roomNumber) {
+            button.setAttribute('aria-current', 'page');
+        }
+        button.addEventListener('click', async () => {
+            try {
+                await activateConversation(conversation);
+                roomDialog.close();
+            } catch (error) {
+                showError(error.message);
+            }
+        });
+        roomList.appendChild(button);
+    });
+    updateControls();
+}
+
+function updateConversationUrl(id, selectedRoomNumber) {
+    const url = new URL(window.location.href);
+    url.searchParams.set('id', id);
+    url.searchParams.set('room', String(selectedRoomNumber));
+    window.history.replaceState(null, '', url);
+}
+
+async function refreshConversations() {
+    const response = await fetch(
+        `/api/conversations?owner_id=${encodeURIComponent(ownerId)}`
+    );
+    const result = await response.json();
+    if (!response.ok || !Array.isArray(result)) {
+        throw new Error(result.detail || 'トークルーム一覧を読み込めませんでした。');
+    }
+
+    conversations = result;
+    renderConversations();
+    const activeConversation = conversations.find(
+        (conversation) => conversation.room_number === roomNumber,
+    );
+    if (activeConversation) {
+        roomName.textContent = activeConversation.title;
+    }
+}
+
+async function activateConversation(conversation) {
+    if (isSending) return;
+    roomNumber = conversation.room_number;
+    const selectedOwnerId = ownerId;
+    const selectedRoomNumber = roomNumber;
+    roomReady = false;
+    roomName.textContent = conversation.title;
+    updateConversationUrl(ownerId, roomNumber);
+    renderConversations();
+    clearError();
+    timeline.replaceChildren();
+    try {
+        await loadHistory(selectedOwnerId, selectedRoomNumber);
+        if (ownerId === selectedOwnerId && roomNumber === selectedRoomNumber) {
+            roomReady = true;
+        }
+    } finally {
+        if (ownerId === selectedOwnerId && roomNumber === selectedRoomNumber) {
+            updateControls();
+        }
+    }
+}
+
+async function loadConversations() {
+    if (!ownerId) {
+        const firstRoom = await requestConversationCreation(null);
+        ownerId = firstRoom.owner_id;
+        conversations = [firstRoom];
+        await activateConversation(firstRoom);
+        return;
+    }
+
+    await refreshConversations();
+    if (conversations.length === 0) {
+        const firstRoom = await requestConversationCreation(ownerId);
+        conversations = [firstRoom];
+        await activateConversation(firstRoom);
+        return;
+    }
+
+    const selectedConversation = conversations.find(
+        (conversation) => conversation.room_number === roomNumber,
+    ) || conversations[0];
+    await activateConversation(selectedConversation);
+}
+
+async function requestConversationCreation(requestedOwnerId) {
+    const response = await fetch('/api/conversations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ owner_id: requestedOwnerId }),
+    });
+    const result = await response.json();
+    if (
+        !response.ok
+        || typeof result.owner_id !== 'string'
+        || !Number.isSafeInteger(result.room_number)
+        || result.room_number < 1
+        || typeof result.title !== 'string'
+        || (requestedOwnerId && result.owner_id !== requestedOwnerId)
+    ) {
+        throw new Error(result.detail || '新しいトークルームを作成できませんでした。');
+    }
+    return result;
+}
+
+async function createConversation() {
+    if (isSending) return;
+    newRoomButton.disabled = true;
+    clearError();
+    try {
+        const conversation = await requestConversationCreation(ownerId);
+        conversations = [
+            conversation,
+            ...conversations.filter(
+                (item) => item.room_number !== conversation.room_number,
+            ),
+        ];
+        await activateConversation(conversation);
+        roomDialog.close();
+    } catch (error) {
+        showError(error.message);
+    } finally {
+        updateControls();
+    }
 }
 
 function setMessageTime(message, createdAt) {
@@ -248,31 +406,22 @@ async function switchModel() {
     }
 }
 
-async function ensureConversationId() {
-    if (!conversationId) {
-        const response = await fetch('/api/conversations', { method: 'POST' });
-        const result = await response.json();
-        if (!response.ok || typeof result.conversation_id !== 'string') {
-            throw new Error(result.detail || '会話IDを作成できませんでした。');
-        }
-        conversationId = result.conversation_id;
-        const url = new URL(window.location.href);
-        url.searchParams.set('id', conversationId);
-        window.history.replaceState(null, '', url);
-    }
-}
-
-async function loadHistory() {
-    if (!conversationId) return;
-
+async function loadHistory(id, selectedRoomNumber) {
+    const query = new URLSearchParams({ owner_id: id });
     const response = await fetch(
-        `/api/conversations/${encodeURIComponent(conversationId)}/messages`
+        `/api/conversations/${encodeURIComponent(selectedRoomNumber)}/messages?${query}`
     );
     const messages = await response.json();
-    if (!response.ok) {
+    if (!response.ok || !Array.isArray(messages)) {
         throw new Error(messages.detail || '会話履歴を読み込めませんでした。');
     }
 
+    if (id !== ownerId || selectedRoomNumber !== roomNumber) return;
+    timeline.replaceChildren();
+    if (messages.length === 0) {
+        showWelcomeMessage();
+        return;
+    }
     messages.forEach((message) => {
         appendMessage(message.sender, message.content, message.created_at);
     });
@@ -282,6 +431,10 @@ async function sendMessage(event) {
     event.preventDefault();
     const text = messageInput.value.trim();
     if (!text || sendBtn.disabled) return;
+    if (!ownerId || !roomNumber) {
+        showError('トークルームを選択できませんでした。ページを再読み込みしてください。');
+        return;
+    }
     if (!chatReady) {
         showError('モデルとSupabaseの準備ができていません。サーバーの状態を確認してください。');
         return;
@@ -295,7 +448,6 @@ async function sendMessage(event) {
     const streamState = { hasContent: false, done: false };
 
     try {
-        await ensureConversationId();
         appendMessage('user', text, new Date().toISOString());
         assistantMessage = appendMessage('assistant', '考え中...', null);
         assistantMessage.bubble.classList.add('thinking');
@@ -304,7 +456,8 @@ async function sendMessage(event) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                conversation_id: conversationId,
+                owner_id: ownerId,
+                room_number: roomNumber,
                 message: text,
                 use_context: contextToggle.checked,
             }),
@@ -322,6 +475,13 @@ async function sendMessage(event) {
         showError(error.message);
     } finally {
         isSending = false;
+        if (ownerId) {
+            try {
+                await refreshConversations();
+            } catch (error) {
+                showError(error.message);
+            }
+        }
         updateControls();
         messageInput.focus();
     }
@@ -329,9 +489,15 @@ async function sendMessage(event) {
 
 messageForm.addEventListener('submit', sendMessage);
 modelSelect.addEventListener('change', switchModel);
+roomMenuButton.addEventListener('click', () => roomDialog.showModal());
+roomDialogClose.addEventListener('click', () => roomDialog.close());
+newRoomButton.addEventListener('click', createConversation);
 settingsButton.addEventListener('click', () => settingsDialog.showModal());
 settingsClose.addEventListener('click', () => settingsDialog.close());
 contextToggle.addEventListener('change', saveContextSetting);
+roomDialog.addEventListener('click', (event) => {
+    if (event.target === roomDialog) roomDialog.close();
+});
 settingsDialog.addEventListener('click', (event) => {
     if (event.target === settingsDialog) settingsDialog.close();
 });
@@ -356,7 +522,7 @@ async function init() {
             settingsStatus.textContent = error.message;
             showError(error.message);
         }),
-        loadHistory().catch((error) => showError(error.message)),
+        loadConversations().catch((error) => showError(error.message)),
     ]);
 }
 

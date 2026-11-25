@@ -96,6 +96,7 @@ body {
     letter-spacing: 0.04em;
 }
 
+#room-menu-button,
 #settings-button {
     width: 34px;
     height: 34px;
@@ -108,9 +109,132 @@ body {
     cursor: pointer;
 }
 
+#room-menu-button:hover,
+#room-menu-button:focus-visible,
 #settings-button:hover,
 #settings-button:focus-visible {
     background: #4a435b;
+}
+
+#room-menu-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+#room-dialog {
+    width: min(320px, 86vw);
+    height: 100dvh;
+    max-height: none;
+    margin: 0 auto 0 0;
+    padding: 0 14px 16px;
+    overflow: hidden;
+    flex-direction: column;
+    gap: 12px;
+    border: 0;
+    border-radius: 0 14px 14px 0;
+    /* トークルーム一覧パネルの背景色 */
+    background: #faf9fc;
+    color: #24212c;
+    box-shadow: 8px 0 32px rgba(20, 18, 28, 0.24);
+}
+
+#room-dialog[open] {
+    display: flex;
+}
+
+#room-dialog::backdrop {
+    background: rgba(20, 18, 28, 0.55);
+}
+
+.room-dialog-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 -14px;
+    padding: 12px 16px;
+    /* トークルーム一覧の見出し背景色と文字色 */
+    background: #292536;
+    color: #fff;
+}
+
+.room-dialog-header h2 {
+    margin: 0;
+    font-size: 1rem;
+}
+
+#room-dialog-close {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+#room-dialog-close:hover,
+#room-dialog-close:focus-visible {
+    background: #4a435b;
+}
+
+#new-room-button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 9px;
+    /* 新しいチャットボタンの色 */
+    background: #756391;
+    color: #fff;
+    font: inherit;
+    font-size: 0.88rem;
+    cursor: pointer;
+}
+
+#new-room-button:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+
+#room-list {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    gap: 5px;
+    overflow-y: auto;
+}
+
+.room-list-item {
+    min-height: 42px;
+    padding: 9px 10px;
+    overflow: hidden;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    background: transparent;
+    color: #373246;
+    font: inherit;
+    font-size: 0.86rem;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.room-list-item:hover,
+.room-list-item:focus-visible {
+    background: #efedf2;
+}
+
+.room-list-item[aria-current="page"] {
+    border-color: #d5cfdf;
+    /* 選択中ルームの背景色 */
+    background: #e6e1eb;
+    color: #292536;
+    font-weight: 600;
+}
+
+.room-list-item:disabled {
+    cursor: wait;
 }
 
 #settings-dialog {
