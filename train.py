@@ -9,7 +9,7 @@ from transformers import TrainingArguments
 # 1. モデルとトークナイザーの読み込み
 # ==========================================
 max_seq_length = 2048  # チャットなので2048あれば十分（VRAM節約にもなる）
-model_name = "unsloth/Qwen3-8B-unsloth-bnb-4bit" # 重ければ Qwen3-4B や Qwen2.5-7B-Instruct-bnb-4bit に変更
+model_name = "unsloth/Qwen3-4B-unsloth-bnb-4bit" # 重ければ Qwen3-4B や Qwen2.5-7B-Instruct-bnb-4bit に変更
 
 model, tokenizer = FastLanguageModel.from_pretrained(
     model_name = model_name,
@@ -54,6 +54,19 @@ def formatting_prompts_func(examples):
 dataset = load_dataset("json", data_files = "Talking_data.jsonl", split = "train")
 dataset = dataset.map(formatting_prompts_func, batched = True)
 
+print("===== ORIGINAL MESSAGES =====")
+print(dataset[0]["messages"])
+
+print("\n===== FORMATTED TEXT =====")
+print(dataset[0]["text"])
+
+print("\n===== TOKENIZED LENGTH =====")
+tokens = tokenizer(
+    dataset[0]["text"],
+    add_special_tokens=False
+)
+print(len(tokens["input_ids"]))
+
 # ==========================================
 # 4. 学習パラメータの設定（RTX 4060 8GB向け）
 # ==========================================
@@ -69,7 +82,7 @@ trainer = SFTTrainer(
         per_device_train_batch_size = 1, # VRAM 8GBなので1に固定
         gradient_accumulation_steps = 4, # 4回分溜めてから更新（実質バッチサイズ4）
         warmup_steps = 5,
-        num_train_epochs = 5,            # データが約36件と少ないため、5周（エポック）学習させる
+        num_train_epochs = 2,            # データが約36件と少ないため、5周（エポック）学習させる
         learning_rate = 2e-4,
         fp16 = not torch.cuda.is_bf16_supported(),
         bf16 = torch.cuda.is_bf16_supported(), # RTX 4060はbf16対応なので高速＆安定
@@ -78,7 +91,7 @@ trainer = SFTTrainer(
         weight_decay = 0.01,
         lr_scheduler_type = "linear",
         seed = 3407,
-        output_dir = "outputs",
+        output_dir = "models/outputs",
     ),
 )
 
@@ -92,7 +105,7 @@ print("学習完了！")
 # ==========================================
 print("GGUF形式（Q4_K_M）に変換・保存中...（数分かかります）")
 model.save_pretrained_gguf(
-    "luca_gpt_gguf",
+    "models/luca_gpt_02_4B_gguf",
     tokenizer,
     quantization_method = "q4_k_m"
 )
