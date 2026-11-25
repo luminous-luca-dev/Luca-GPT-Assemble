@@ -22,10 +22,10 @@ Never put this key in browser code or commit it. The legacy
 If the `aichat_messages` table has not been created yet, run
 `../supabase/migrations/20261125145000_create_local_chat_messages.sql` in the
 Supabase SQL Editor first. Then run
-`../supabase/migrations/20261126010000_add_aichat_rooms.sql` to add owner IDs and
-room numbers and connect existing messages to rooms. This SQL also upgrades the
-earlier room-table version if it was already applied: existing room IDs become
-their owner IDs, and those rooms are assigned number 1.
+`../supabase/migrations/20261126010000_add_aichat_rooms.sql` to create the room
+table and add `owner_id` and `room_number` to `aichat_messages`. It backfills
+existing conversations as room 1 and also upgrades the earlier room-table
+version if it was already applied.
 
 Start the chat server from `real-ai-app`:
 
@@ -68,8 +68,8 @@ Open the hamburger button on the left side of the chat header to view and
 switch between saved talk rooms, or create a new chat. The `id` URL parameter
 identifies the room owner and stays the same when new rooms are created; the
 `room` parameter selects that owner's room number. If `id` is missing, the
-server creates one and adds it to the URL. A room title is set from its first
-user message.
+server creates one and adds it to the URL. Room names are fixed as `ルーム1`,
+`ルーム2`, and so on.
 
 Open the gear button in the chat header to access settings. There you can
 switch between GGUF files under the repository's `models/` directory; the
@@ -88,9 +88,10 @@ default can be changed to conversation mode with
 
 ## Message storage
 
-Rooms use `aichat_rooms`, and user messages and model replies use
-`aichat_messages`. The local FastAPI server reads and writes both using the
-service role key from `real-ai-app/.env`; the browser never receives this key.
+Rooms use `aichat_rooms`; `aichat_messages` stores the room's `owner_id` and
+`room_number` alongside each message. The local FastAPI server reads and writes
+both using the service role key from `real-ai-app/.env`; the browser never
+receives this key.
 The room list is filtered by the UUID in `?id=`, and `?room=` selects a room
 number. This is URL-based separation, not authentication: anyone who learns an
 `id` can open that owner's rooms, so do not treat it as private or secure.

@@ -90,6 +90,16 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             if table == "aichat_rooms":
                 return [{"id": str(self.room_id)}]
             if method == "GET":
+                self.assertEqual(
+                    params,
+                    {
+                        "select": "sender,content,created_at",
+                        "conversation_id": f"eq.{self.room_id}",
+                        "owner_id": f"eq.{self.owner_id}",
+                        "room_number": "eq.1",
+                        "order": "created_at.asc,id.asc",
+                    },
+                )
                 return [
                     {"sender": "user", "content": "前の発言"},
                     {"sender": "assistant", "content": "前の返事"},
@@ -108,6 +118,14 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["reply"], "こんにちは！")
         self.assertEqual([row["sender"] for row in stored], ["user", "assistant"])
+        self.assertTrue(
+            all(
+                row["owner_id"] == str(self.owner_id)
+                and row["room_number"] == 1
+                and row["conversation_id"] == str(self.room_id)
+                for row in stored
+            )
+        )
         self.assertEqual(
             model.messages[-3:],
             [
@@ -319,7 +337,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             requests[1][3][0]["owner_id"],
             result["owner_id"],
         )
-        self.assertEqual(requests[1][3][0]["room_number"], "1")
+        self.assertEqual(requests[1][3][0]["room_number"], 1)
 
     async def test_create_room_keeps_owner_id_and_increments_room_number(self):
         owner_id = uuid.uuid4()
@@ -349,7 +367,6 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             return [
                 {
                     "room_number": 2,
-                    "title": "新しい質問",
                     "updated_at": "2026-11-26T00:00:00+00:00",
                 }
             ]
@@ -362,7 +379,6 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             [
                 {
                     "room_number": 2,
-                    "title": "新しい質問",
                     "updated_at": "2026-11-26T00:00:00+00:00",
                 }
             ],

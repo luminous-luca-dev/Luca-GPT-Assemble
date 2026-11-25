@@ -71,9 +71,26 @@ body {
     font-weight: 700;
 }
 
-.room-name {
+.header-title {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    min-width: 0;
+}
+
+.app-name {
     margin: 0;
     font-size: 0.92rem;
+    white-space: nowrap;
+}
+
+.room-name {
+    min-width: 0;
+    overflow: hidden;
+    color: #c9c3d3;
+    font-size: 0.64rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #model-status {

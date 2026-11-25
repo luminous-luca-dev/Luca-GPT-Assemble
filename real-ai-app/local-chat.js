@@ -94,7 +94,7 @@ function renderConversations() {
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'room-list-item';
-        button.textContent = `ルーム${conversation.room_number} - ${conversation.title}`;
+        button.textContent = `ルーム${conversation.room_number}`;
         if (conversation.room_number === roomNumber) {
             button.setAttribute('aria-current', 'page');
         }
@@ -133,7 +133,7 @@ async function refreshConversations() {
         (conversation) => conversation.room_number === roomNumber,
     );
     if (activeConversation) {
-        roomName.textContent = activeConversation.title;
+        roomName.textContent = `ルーム${activeConversation.room_number}`;
     }
 }
 
@@ -143,7 +143,7 @@ async function activateConversation(conversation) {
     const selectedOwnerId = ownerId;
     const selectedRoomNumber = roomNumber;
     roomReady = false;
-    roomName.textContent = conversation.title;
+    roomName.textContent = `ルーム${roomNumber}`;
     updateConversationUrl(ownerId, roomNumber);
     renderConversations();
     clearError();
@@ -195,7 +195,6 @@ async function requestConversationCreation(requestedOwnerId) {
         || typeof result.owner_id !== 'string'
         || !Number.isSafeInteger(result.room_number)
         || result.room_number < 1
-        || typeof result.title !== 'string'
         || (requestedOwnerId && result.owner_id !== requestedOwnerId)
     ) {
         throw new Error(result.detail || '新しいトークルームを作成できませんでした。');

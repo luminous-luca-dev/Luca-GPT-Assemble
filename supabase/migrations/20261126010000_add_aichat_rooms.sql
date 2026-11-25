@@ -1,9 +1,7 @@
 create table if not exists public.aichat_rooms (
     id uuid primary key default gen_random_uuid(),
-    owner_id uuid,
-    room_number integer,
-    title text not null default '新しいチャット'
-        check (char_length(btrim(title)) between 1 and 100),
+    owner_id uuid not null,
+    room_number integer not null check (room_number > 0),
     created_at timestamptz not null default now(),
     updated_at timestamptz not null default now()
 );
@@ -42,27 +40,37 @@ end
 $$;
 
 insert into public.aichat_rooms
-    (id, owner_id, room_number, title, created_at, updated_at)
+    (id, owner_id, room_number, created_at, updated_at)
 select
     messages.conversation_id,
     messages.conversation_id,
     1,
-    coalesce(
-        (
-            select left(btrim(first_message.content), 50)
-            from public.aichat_messages as first_message
-            where first_message.conversation_id = messages.conversation_id
-              and first_message.sender = 'user'
-            order by first_message.created_at, first_message.id
-            limit 1
-        ),
-        '過去のチャット'
-    ),
     min(messages.created_at),
     max(messages.created_at)
 from public.aichat_messages as messages
 group by messages.conversation_id
 on conflict (id) do nothing;
+
+create unique index if not exists aichat_rooms_owner_room_idx
+    on public.aichat_rooms (owner_id, room_number);
+
+alter table public.aichat_messages
+    add column if not exists owner_id uuid;
+
+alter table public.aichat_messages
+    add column if not exists room_number integer;
+
+update public.aichat_messages as messages
+set
+    owner_id = rooms.owner_id,
+    room_number = rooms.room_number
+from public.aichat_rooms as rooms
+where messages.conversation_id = rooms.id
+  and (messages.owner_id is null or messages.room_number is null);
+
+alter table public.aichat_messages
+    alter column owner_id set not null,
+    alter column room_number set not null;
 
 do $$
 begin
@@ -80,16 +88,35 @@ begin
 end
 $$;
 
+do $$
+begin
+    if not exists (
+        select 1
+        from pg_constraint
+        where conrelid = 'public.aichat_messages'::regclass
+          and conname = 'aichat_messages_owner_room_fkey'
+    ) then
+        alter table public.aichat_messages
+            add constraint aichat_messages_owner_room_fkey
+            foreign key (owner_id, room_number)
+            references public.aichat_rooms (owner_id, room_number);
+    end if;
+end
+$$;
+
 create index if not exists aichat_rooms_updated_idx
     on public.aichat_rooms (updated_at desc, id desc);
 
-create unique index if not exists aichat_rooms_owner_room_idx
-    on public.aichat_rooms (owner_id, room_number);
+create index if not exists aichat_messages_owner_room_idx
+    on public.aichat_messages (owner_id, room_number, created_at, id);
 
 alter table public.aichat_rooms enable row level security;
+alter table public.aichat_messages enable row level security;
 
 revoke all on public.aichat_rooms from anon, authenticated;
+revoke all on public.aichat_messages from anon, authenticated;
 grant select, insert, update on public.aichat_rooms to service_role;
+grant select, insert on public.aichat_messages to service_role;
 
 create or replace function public.update_aichat_room_from_message()
 returns trigger
@@ -99,13 +126,10 @@ as $$
 begin
     update public.aichat_rooms
     set
-        updated_at = greatest(updated_at, new.created_at),
-        title = case
-            when new.sender = 'user' and title = '新しいチャット'
-                then left(btrim(new.content), 50)
-            else title
-        end
-    where id = new.conversation_id;
+        updated_at = greatest(updated_at, new.created_at)
+    where id = new.conversation_id
+      and owner_id = new.owner_id
+      and room_number = new.room_number;
 
     return new;
 end;
