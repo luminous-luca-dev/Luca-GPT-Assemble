@@ -1,0 +1,4 @@
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu130
+fastapi>=0.110,<1
+uvicorn[standard]>=0.27,<1
+llama-cpp-python>=0.3,<1

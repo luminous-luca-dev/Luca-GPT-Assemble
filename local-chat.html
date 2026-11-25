@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#292536">
+    <title>Luca GPT - ローカルチャット</title>
+    <link rel="stylesheet" href="/local-chat.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <main id="chat-app">
+        <header id="chat-header">
+            <div class="header-info">
+                <span class="avatar" aria-hidden="true">L</span>
+                <div>
+                    <h1 class="room-name">Luca GPT</h1>
+                    <p id="model-status" role="status">ローカルモデルに接続中...</p>
+                </div>
+            </div>
+            <span class="local-badge"><i class="fa-solid fa-desktop"></i> LOCAL</span>
+        </header>
+
+        <section id="chat-timeline" aria-label="チャット履歴" aria-live="polite">
+            <div class="msg-row luca">
+                <div class="msg-bubble">こんにちは！学習したモデルとローカルで会話できます。</div>
+            </div>
+        </section>
+
+        <div id="chat-error" class="chat-error hidden" role="alert"></div>
+        <footer id="chat-footer">
+            <form id="message-form" class="input-container">
+                <textarea id="message-input" rows="1" maxlength="4000"
+                    placeholder="メッセージを入力..." aria-label="メッセージを入力"></textarea>
+                <button id="send-btn" type="submit" aria-label="送信" disabled>
+                    <i class="fa-solid fa-paper-plane"></i>
+                </button>
+            </form>
+            <p class="footer-note">会話はSupabaseに保存されます</p>
+        </footer>
+    </main>
+    <script src="/local-chat.js"></script>
+</body>
+</html>
