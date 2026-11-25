@@ -42,6 +42,14 @@ To select another GGUF file, set `LUCA_GGUF_PATH` before starting the server.
 Relative model paths are resolved from the repository root.
 `LUCA_CONTEXT_LENGTH` optionally changes the context length (default `4096`).
 
+## Switching models
+
+Use the model selector in the chat header to switch between GGUF files under
+the repository's `models/` directory. The displayed model name comes from its
+parent directory. Only one model is kept loaded; switching closes the current
+model before loading the selected one. Refresh the page after adding new GGUF
+files so they appear in the selector.
+
 ## Message storage
 
 Messages use the dedicated `aichat_messages` table. The local FastAPI server

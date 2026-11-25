@@ -18,16 +18,74 @@ from pydantic import BaseModel, Field
 
 APP_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = APP_ROOT.parent
+MODELS_ROOT = PROJECT_ROOT / "models"
 DEFAULT_MODEL = (
-    PROJECT_ROOT
-    / "models"
+    MODELS_ROOT
     / "luca_gpt_05_single_4B_gguf_gguf"
     / "Qwen3-4B.Q4_K_M.gguf"
 )
 MODEL_PATH = Path(os.environ.get("LUCA_GGUF_PATH", str(DEFAULT_MODEL)))
 if not MODEL_PATH.is_absolute():
     MODEL_PATH = PROJECT_ROOT / MODEL_PATH
-MODEL_DISPLAY_NAME = re.sub(r"(?:_gguf)+$", "", MODEL_PATH.parent.name)
+MODEL_PATH = MODEL_PATH.resolve()
+
+
+def model_display_name(path: Path) -> str:
+    return re.sub(r"(?:_gguf)+$", "", path.parent.name)
+
+
+def model_id(path: Path) -> str | None:
+    try:
+        return path.resolve().relative_to(MODELS_ROOT.resolve()).as_posix()
+    except ValueError:
+        return None
+
+
+def available_model_paths() -> list[Path]:
+    if not MODELS_ROOT.is_dir():
+        return []
+    root = MODELS_ROOT.resolve()
+    paths = []
+    for path in MODELS_ROOT.rglob("*.gguf"):
+        if not path.is_file():
+            continue
+        resolved_path = path.resolve()
+        try:
+            resolved_path.relative_to(root)
+        except ValueError:
+            continue
+        paths.append(resolved_path)
+    return sorted(paths, key=lambda path: path.as_posix().casefold())
+
+
+def create_model(path: Path):
+    if not path.is_file():
+        raise FileNotFoundError(f"GGUF model not found: {path}")
+
+    from llama_cpp import Llama, llama_supports_gpu_offload
+
+    gpu_offload = llama_supports_gpu_offload()
+    llm = Llama(
+        model_path=str(path),
+        n_ctx=int(os.environ.get("LUCA_CONTEXT_LENGTH", "4096")),
+        n_gpu_layers=-1 if gpu_offload else 0,
+        verbose=False,
+    )
+    try:
+        template = llm.metadata.get("tokenizer.chat_template", "")
+        if "enable_thinking is defined" in template:
+            handler = llm._chat_handlers.get(llm.chat_format)
+            if handler is None:
+                raise RuntimeError("The GGUF chat template handler was not initialized.")
+            # llama-cpp-python 0.3.x has no public per-request template-kwargs parameter.
+            llm.chat_handler = partial(handler, enable_thinking=False)
+    except Exception:
+        llm.close()
+        raise
+
+    return llm, "GPU" if gpu_offload else "CPU"
+
+
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SECRET_KEY = (
     os.environ.get("SUPABASE_SECRET_KEY")
@@ -35,7 +93,7 @@ SUPABASE_SECRET_KEY = (
 )
 
 logger = logging.getLogger("local_chat")
-generation_lock = Lock()
+model_lock = Lock()
 
 
 class ChatRequest(BaseModel):
@@ -43,34 +101,20 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=4000)
 
 
+class ModelSelectionRequest(BaseModel):
+    model_id: str = Field(min_length=1, max_length=512)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.llm = None
     app.state.model_error = None
     app.state.model_device = None
+    app.state.model_path = MODEL_PATH
 
     try:
-        if not MODEL_PATH.is_file():
-            raise FileNotFoundError(f"GGUF model not found: {MODEL_PATH}")
-
-        from llama_cpp import Llama, llama_supports_gpu_offload
-
-        gpu_offload = llama_supports_gpu_offload()
-        app.state.llm = Llama(
-            model_path=str(MODEL_PATH),
-            n_ctx=int(os.environ.get("LUCA_CONTEXT_LENGTH", "4096")),
-            n_gpu_layers=-1 if gpu_offload else 0,
-            verbose=False,
-        )
-        template = app.state.llm.metadata.get("tokenizer.chat_template", "")
-        if "enable_thinking is defined" in template:
-            handler = app.state.llm._chat_handlers.get(app.state.llm.chat_format)
-            if handler is None:
-                raise RuntimeError("The GGUF chat template handler was not initialized.")
-            # llama-cpp-python 0.3.x has no public per-request template-kwargs parameter.
-            app.state.llm.chat_handler = partial(handler, enable_thinking=False)
-        app.state.model_device = "GPU" if gpu_offload else "CPU"
-        logger.info("Loaded GGUF model from %s", MODEL_PATH)
+        app.state.llm, app.state.model_device = create_model(MODEL_PATH)
+        logger.info("Loaded GGUF model from %s", app.state.model_path)
     except Exception as exc:
         app.state.model_error = str(exc)
         logger.exception("Could not load the local GGUF model")
@@ -108,9 +152,84 @@ async def health():
     return {
         "model_ready": app.state.llm is not None,
         "model_error": app.state.model_error,
-        "model": MODEL_DISPLAY_NAME,
+        "model": model_display_name(app.state.model_path),
         "device": app.state.model_device,
         "storage_ready": bool(SUPABASE_URL and SUPABASE_SECRET_KEY),
+    }
+
+
+@app.get("/api/models")
+async def list_models():
+    paths = available_model_paths()
+    models = [
+        {
+            "id": model_id(path),
+            "name": model_display_name(path),
+        }
+        for path in paths
+    ]
+    active_model_id = model_id(app.state.model_path)
+    if active_model_id is None:
+        active_model_id = "__configured_model__"
+        models.insert(
+            0,
+            {
+                "id": active_model_id,
+                "name": model_display_name(app.state.model_path),
+            },
+        )
+    return {"models": models, "active_model_id": active_model_id}
+
+
+def resolve_model_id(requested_id: str) -> Path:
+    if requested_id == "__configured_model__" and model_id(app.state.model_path) is None:
+        return app.state.model_path
+
+    for path in available_model_paths():
+        if model_id(path) == requested_id:
+            return path
+    raise HTTPException(status_code=404, detail="選択されたモデルが見つかりません。")
+
+
+def switch_model(path: Path) -> None:
+    path = path.resolve()
+    with model_lock:
+        if path == app.state.model_path and app.state.llm is not None:
+            return
+
+        previous_model = app.state.llm
+        app.state.llm = None
+        app.state.model_path = path
+        app.state.model_device = None
+        app.state.model_error = None
+
+        try:
+            if previous_model is not None:
+                previous_model.close()
+            app.state.llm, app.state.model_device = create_model(path)
+        except Exception as exc:
+            app.state.model_error = str(exc)
+            logger.exception("Could not switch to GGUF model at %s", path)
+            raise
+
+        logger.info("Switched to GGUF model at %s", path)
+
+
+@app.post("/api/models/select")
+async def select_model(request: ModelSelectionRequest):
+    path = resolve_model_id(request.model_id)
+    try:
+        await run_in_threadpool(switch_model, path)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"モデルを読み込めませんでした: {exc}",
+        ) from exc
+
+    return {
+        "model": model_display_name(app.state.model_path),
+        "device": app.state.model_device,
+        "model_ready": app.state.llm is not None,
     }
 
 
@@ -202,8 +321,11 @@ async def load_conversation(conversation_id: UUID):
     return await get_conversation_messages(conversation_id)
 
 
-def generate_reply(llm, messages: list[dict[str, str]]) -> str:
-    with generation_lock:
+def generate_reply(messages: list[dict[str, str]]) -> str:
+    with model_lock:
+        llm = app.state.llm
+        if llm is None:
+            raise RuntimeError("No model is currently loaded.")
         result = llm.create_chat_completion(
             messages=messages,
             max_tokens=512,
@@ -247,7 +369,7 @@ async def chat(request: ChatRequest):
     messages.append({"role": "user", "content": request.message})
 
     try:
-        reply = await run_in_threadpool(generate_reply, llm, messages)
+        reply = await run_in_threadpool(generate_reply, messages)
     except Exception as exc:
         logger.exception("Local model generation failed")
         raise HTTPException(

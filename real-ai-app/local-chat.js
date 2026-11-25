@@ -3,11 +3,21 @@ const messageForm = document.getElementById('message-form');
 const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const modelStatus = document.getElementById('model-status');
+const modelSelect = document.getElementById('model-select');
 const errorBox = document.getElementById('chat-error');
 const conversationParam = new URLSearchParams(window.location.search).get('id');
 
 let conversationId = conversationParam;
 let chatReady = false;
+let modelCount = 0;
+let isSending = false;
+let isSwitchingModel = false;
+
+function updateControls() {
+    sendBtn.disabled = !chatReady || isSending || isSwitchingModel;
+    messageInput.disabled = isSending || isSwitchingModel;
+    modelSelect.disabled = modelCount === 0 || isSending || isSwitchingModel;
+}
 
 function showError(message) {
     errorBox.textContent = message;
@@ -54,7 +64,9 @@ async function checkModel() {
         if (!response.ok) {
             throw new Error(result.detail || '状態を確認できませんでした。');
         }
-        modelStatus.textContent = `ローカルモデル: ${result.model} (${result.device})`;
+        modelStatus.textContent = result.model_ready
+            ? `${result.model} (${result.device})`
+            : `${result.model} (読み込み失敗)`;
         const issues = [];
         if (!result.model_ready) {
             issues.push(`モデルを読み込めません: ${result.model_error || '詳細はサーバーログを確認してください。'}`);
@@ -62,15 +74,73 @@ async function checkModel() {
         if (!result.storage_ready) {
             issues.push('.envにSUPABASE_URLとSUPABASE_SECRET_KEYを設定してください。');
         }
+        chatReady = result.model_ready && result.storage_ready;
         if (issues.length) {
             showError(issues.join(' '));
-            return;
+        } else {
+            clearError();
         }
-        chatReady = true;
-        sendBtn.disabled = false;
+        updateControls();
     } catch (error) {
+        chatReady = false;
         modelStatus.textContent = 'ローカルサーバーに接続できません';
         showError(error.message);
+        updateControls();
+    }
+}
+
+async function loadModels() {
+    const response = await fetch('/api/models');
+    const result = await response.json();
+    if (!response.ok) {
+        throw new Error(result.detail || 'モデル一覧を読み込めませんでした。');
+    }
+
+    modelSelect.replaceChildren();
+    result.models.forEach((model) => {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = model.name;
+        modelSelect.appendChild(option);
+    });
+    modelCount = result.models.length;
+    modelSelect.value = result.active_model_id;
+    if (modelCount === 0) {
+        showError('modelsフォルダーにGGUFモデルがありません。');
+    }
+    updateControls();
+}
+
+async function switchModel() {
+    if (!modelSelect.value || isSwitchingModel || isSending) return;
+
+    clearError();
+    isSwitchingModel = true;
+    modelStatus.textContent = 'モデルを切り替えています...';
+    updateControls();
+
+    try {
+        const response = await fetch('/api/models/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ model_id: modelSelect.value }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+            throw new Error(result.detail || 'モデルを切り替えられませんでした。');
+        }
+        await checkModel();
+    } catch (error) {
+        showError(error.message);
+        try {
+            await loadModels();
+            await checkModel();
+        } catch (refreshError) {
+            showError(refreshError.message);
+        }
+    } finally {
+        isSwitchingModel = false;
+        updateControls();
     }
 }
 
@@ -112,8 +182,8 @@ async function sendMessage(event) {
     }
 
     clearError();
-    sendBtn.disabled = true;
-    messageInput.disabled = true;
+    isSending = true;
+    updateControls();
     messageInput.value = '';
 
     try {
@@ -133,13 +203,14 @@ async function sendMessage(event) {
     } catch (error) {
         showError(error.message);
     } finally {
-        sendBtn.disabled = false;
-        messageInput.disabled = false;
+        isSending = false;
+        updateControls();
         messageInput.focus();
     }
 }
 
 messageForm.addEventListener('submit', sendMessage);
+modelSelect.addEventListener('change', switchModel);
 
 messageInput.addEventListener('input', () => {
     messageInput.style.height = 'auto';
@@ -156,6 +227,7 @@ messageInput.addEventListener('keydown', (event) => {
 async function init() {
     await Promise.all([
         checkModel(),
+        loadModels().catch((error) => showError(error.message)),
         loadHistory().catch((error) => showError(error.message)),
     ]);
 }
