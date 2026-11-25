@@ -1,6 +1,7 @@
 :root {
     color-scheme: light;
     font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', Meiryo, sans-serif;
+    /* 基本文字色と、ページ外側の背景色 */
     color: #24212c;
     background: #d7d2df;
 }
@@ -15,6 +16,7 @@ body {
     min-height: 100dvh;
     display: flex;
     justify-content: center;
+    /* ページ外側の背景色（:rootのbackgroundと合わせる） */
     background: #d7d2df;
 }
 
@@ -26,6 +28,7 @@ body {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    /* チャット画面本体の背景色 */
     background: #eeeaf2;
     box-shadow: 0 0 24px rgba(37, 31, 48, 0.18);
 }
@@ -36,6 +39,7 @@ body {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    /* ヘッダーの文字色と背景色 */
     color: #fff;
     background: #292536;
 }
@@ -70,6 +74,7 @@ body {
     display: grid;
     place-items: center;
     border-radius: 50%;
+    /* ヘッダー左の丸いアイコンの色 */
     background: #8171a7;
     color: white;
     font-weight: 700;
@@ -82,6 +87,7 @@ body {
 
 #model-status {
     margin: 3px 0 0;
+    /* モデル状態表示の文字色 */
     color: #c9c3d3;
     font-size: 0.72rem;
     overflow: hidden;
@@ -94,6 +100,7 @@ body {
     width: min(220px, 100%);
     margin-top: 5px;
     padding: 4px 7px;
+    /* モデル選択欄の枠線・背景・文字色 */
     border: 1px solid #625a73;
     border-radius: 6px;
     background: #373246;
@@ -109,6 +116,7 @@ body {
 
 .local-badge {
     padding: 5px 8px;
+    /* LOCALバッジの枠線と文字色 */
     border: 1px solid #625a73;
     border-radius: 12px;
     color: #ddd6ed;
@@ -124,6 +132,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 9px;
+    /* メッセージ一覧エリアの背景色 */
     background: #e6e1eb;
 }
 
@@ -150,18 +159,21 @@ body {
 
 .msg-row.user .msg-bubble {
     border-top-right-radius: 4px;
+    /* ユーザー側の吹き出し背景色と文字色 */
     background: #cbb9ee;
     color: #241d33;
 }
 
 .msg-row.luca .msg-bubble {
     border-top-left-radius: 4px;
+    /* AI側の吹き出し背景色と文字色 */
     background: #faf9fc;
     color: #24212c;
 }
 
 .msg-time {
     margin-bottom: 2px;
+    /* 吹き出し横の時刻表示色 */
     color: #777181;
     font-size: 0.65rem;
     white-space: nowrap;
@@ -169,6 +181,7 @@ body {
 
 .chat-error {
     padding: 9px 14px;
+    /* エラーメッセージ欄の背景色と文字色 */
     background: #fff0ef;
     color: #9c2924;
     font-size: 0.82rem;
@@ -181,6 +194,7 @@ body {
 
 #chat-footer {
     padding: 9px 12px 7px;
+    /* 入力エリア全体の背景色 */
     background: #faf9fc;
 }
 
@@ -190,6 +204,7 @@ body {
     gap: 8px;
     padding: 5px 10px 5px 14px;
     border-radius: 20px;
+    /* 入力欄の外側の背景色 */
     background: #efedf2;
 }
 
@@ -201,6 +216,7 @@ body {
     resize: none;
     border: 0;
     outline: none;
+    /* 入力欄の背景色（transparentで外側の色を透過）と文字色 */
     background: transparent;
     color: #24212c;
     font: inherit;
@@ -213,6 +229,7 @@ body {
     flex: 0 0 36px;
     border: 0;
     border-radius: 50%;
+    /* 送信ボタンの背景色とアイコン色 */
     background: #756391;
     color: white;
     font-size: 1rem;
@@ -220,12 +237,14 @@ body {
 }
 
 #send-btn:disabled {
+    /* 送信できない状態のボタン背景色 */
     background: #aaa4b4;
     cursor: wait;
 }
 
 .footer-note {
     margin: 5px 4px 0;
+    /* フッターの補足テキスト色 */
     color: #777181;
     font-size: 0.65rem;
     text-align: center;
