@@ -30,13 +30,30 @@ Start the chat server from `real-ai-app`:
 py -3.10 -m uvicorn local_chat:app --host 127.0.0.1 --port 8000 --env-file .env
 ```
 
-Then open <http://127.0.0.1:8000/>. The server binds to loopback only; do not
-change the host to `0.0.0.0` to expose it. The model loads when the server
-starts. If `llama-cpp-python` cannot be installed or the GGUF file is missing,
-the chat page will show the error and the server log will contain details.
+Then open <http://127.0.0.1:8000/>. By default, the server binds to loopback
+only. The model loads when the server starts. If `llama-cpp-python` cannot be
+installed or the GGUF file is missing, the chat page will show the error and
+the server log will contain details.
 For a CPU-only setup or a different Python/CUDA version, replace the `cu130`
 wheel index in `real-ai-app/requirements-local.txt` with the matching index documented by
 llama-cpp-python.
+
+## Access from a phone on the same Wi-Fi
+
+LAN access is opt-in. Find the PC's Wi-Fi IPv4 address with `ipconfig`, then
+add that address to `LUCA_ALLOWED_HOSTS` in `real-ai-app/.env` (for example,
+`LUCA_ALLOWED_HOSTS=192.168.1.20`). Start the server bound to that exact
+address, replacing the example with the PC's address:
+
+```powershell
+py -3.10 -m uvicorn local_chat:app --host 192.168.1.20 --port 8000 --env-file .env
+```
+
+On the phone, open `http://192.168.1.20:8000/`. If it still cannot connect,
+allow inbound TCP port 8000 for the Windows Private network profile and check
+that the Wi-Fi network does not isolate wireless clients. This app currently
+has no user authentication, so use this only on a trusted private network and
+do not configure router port forwarding.
 
 To select another GGUF file, set `LUCA_GGUF_PATH` before starting the server.
 Relative model paths are resolved from the repository root.

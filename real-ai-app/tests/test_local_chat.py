@@ -1,3 +1,4 @@
+import os
 import tempfile
 import unittest
 import uuid
@@ -220,6 +221,16 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(raised.exception.status_code, 404)
+
+    async def test_allowed_hosts_can_include_configured_lan_address(self):
+        with patch.dict(
+            os.environ,
+            {"LUCA_ALLOWED_HOSTS": "192.168.1.20, chat.local"},
+        ):
+            self.assertEqual(
+                local_chat.allowed_hosts(),
+                ["localhost", "127.0.0.1", "192.168.1.20", "chat.local"],
+            )
 
 
 if __name__ == "__main__":

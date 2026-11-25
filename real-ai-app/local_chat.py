@@ -92,6 +92,17 @@ SUPABASE_SECRET_KEY = (
     or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 )
 
+
+def allowed_hosts() -> list[str]:
+    hosts = ["localhost", "127.0.0.1"]
+    hosts.extend(
+        host.strip()
+        for host in os.environ.get("LUCA_ALLOWED_HOSTS", "").split(",")
+        if host.strip()
+    )
+    return hosts
+
+
 logger = logging.getLogger("local_chat")
 model_lock = Lock()
 
@@ -125,7 +136,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Luca local chat", lifespan=lifespan)
 app.add_middleware(
     TrustedHostMiddleware,
-    allowed_hosts=["localhost", "127.0.0.1"],
+    allowed_hosts=allowed_hosts(),
 )
 
 
