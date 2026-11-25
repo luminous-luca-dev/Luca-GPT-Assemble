@@ -430,7 +430,7 @@ function setupPWA(threadId) {
         "background_color": "#2c3e50",
         "theme_color": "#2c3e50",
         "icons": [
-            { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }
+            { "src": "/images/icon-192_color.png", "sizes": "192x192", "type": "image/png" }
         ]
     };
 
@@ -442,7 +442,7 @@ function setupPWA(threadId) {
 
     const appleIcon = document.createElement('link');
     appleIcon.rel = 'apple-touch-icon';
-    appleIcon.href = 'icon-192.png';
+    appleIcon.href = '/images/icon-192_color.png';
     document.head.appendChild(appleIcon);
 
     const installBtn = document.getElementById('install-btn');
