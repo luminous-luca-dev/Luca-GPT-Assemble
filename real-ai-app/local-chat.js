@@ -46,8 +46,9 @@ function appendMessage(sender, text, createdAt) {
     bubble.textContent = text;
     row.appendChild(bubble);
 
+    let time = null;
     if (createdAt) {
-        const time = document.createElement('div');
+        time = document.createElement('div');
         time.className = 'msg-time';
         time.textContent = formatTime(createdAt);
         row.appendChild(time);
@@ -55,6 +56,66 @@ function appendMessage(sender, text, createdAt) {
 
     timeline.appendChild(row);
     timeline.scrollTop = timeline.scrollHeight;
+    return { row, bubble, time };
+}
+
+function setMessageTime(message, createdAt) {
+    if (!createdAt || message.time) return;
+    message.time = document.createElement('div');
+    message.time.className = 'msg-time';
+    message.time.textContent = formatTime(createdAt);
+    message.row.appendChild(message.time);
+}
+
+async function readChatStream(response, assistantMessage, state) {
+    if (!response.body) {
+        throw new Error('ストリーミング応答を読み取れません。');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    function processFrame(frame) {
+        const data = frame
+            .split(/\r?\n/)
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart())
+            .join('\n');
+        if (!data) return;
+
+        const event = JSON.parse(data);
+        if (event.type === 'token') {
+            if (!state.hasContent) {
+                assistantMessage.bubble.textContent = '';
+                assistantMessage.bubble.classList.remove('thinking');
+                state.hasContent = true;
+            }
+            assistantMessage.bubble.textContent += event.text;
+            timeline.scrollTop = timeline.scrollHeight;
+        } else if (event.type === 'done') {
+            state.done = true;
+            setMessageTime(assistantMessage, event.assistant_created_at);
+        } else if (event.type === 'error') {
+            throw new Error(event.detail || '応答を生成できませんでした。');
+        }
+    }
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (value) buffer += decoder.decode(value, { stream: true });
+        if (done) buffer += decoder.decode();
+
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop();
+        frames.forEach(processFrame);
+        if (done) break;
+    }
+
+    if (buffer.trim()) processFrame(buffer);
+    if (!state.done) {
+        throw new Error('応答ストリームが途中で終了しました。');
+    }
 }
 
 async function checkModel() {
@@ -187,22 +248,30 @@ async function sendMessage(event) {
     isSending = true;
     updateControls();
     messageInput.value = '';
+    let assistantMessage = null;
+    const streamState = { hasContent: false, done: false };
 
     try {
         await ensureConversationId();
         appendMessage('user', text, new Date().toISOString());
+        assistantMessage = appendMessage('assistant', '考え中...', null);
+        assistantMessage.bubble.classList.add('thinking');
 
-        const response = await fetch('/api/chat', {
+        const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ conversation_id: conversationId, message: text }),
         });
-        const result = await response.json();
         if (!response.ok) {
+            const result = await response.json();
             throw new Error(result.detail || 'メッセージを送信できませんでした。');
         }
-        appendMessage('assistant', result.reply, result.assistant_created_at);
+        await readChatStream(response, assistantMessage, streamState);
     } catch (error) {
+        if (assistantMessage && !streamState.hasContent) {
+            assistantMessage.bubble.textContent = '応答を生成できませんでした。';
+            assistantMessage.bubble.classList.remove('thinking');
+        }
         showError(error.message);
     } finally {
         isSending = false;

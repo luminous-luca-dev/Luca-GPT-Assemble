@@ -1,3 +1,5 @@
+import asyncio
+import json
 import logging
 import os
 import re
@@ -12,8 +14,9 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
+from starlette.concurrency import iterate_in_threadpool
 
 
 APP_ROOT = Path(__file__).resolve().parent
@@ -91,6 +94,18 @@ SUPABASE_SECRET_KEY = (
     os.environ.get("SUPABASE_SECRET_KEY")
     or os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
 )
+def read_chat_context_mode() -> Literal["single-turn", "conversation"]:
+    mode = os.environ.get("LUCA_CHAT_CONTEXT_MODE", "single-turn").strip().lower()
+    if mode == "single-turn":
+        return "single-turn"
+    if mode == "conversation":
+        return "conversation"
+    raise ValueError(
+        "LUCA_CHAT_CONTEXT_MODE must be 'single-turn' or 'conversation'."
+    )
+
+
+CHAT_CONTEXT_MODE = read_chat_context_mode()
 
 
 def allowed_hosts() -> list[str]:
@@ -341,6 +356,40 @@ async def load_conversation(conversation_id: UUID):
     return await get_conversation_messages(conversation_id)
 
 
+async def stream_model_reply(messages: list[dict[str, str]]):
+    while not model_lock.acquire(blocking=False):
+        await asyncio.sleep(0.01)
+
+    stream = None
+    try:
+        llm = app.state.llm
+        if llm is None:
+            raise RuntimeError("No model is currently loaded.")
+
+        stream = await run_in_threadpool(
+            llm.create_chat_completion,
+            messages=messages,
+            max_tokens=512,
+            temperature=0.7,
+            top_p=0.8,
+            stream=True,
+        )
+        async for chunk in iterate_in_threadpool(stream):
+            delta = chunk["choices"][0].get("delta", {}).get("content")
+            if delta is not None:
+                if not isinstance(delta, str):
+                    raise ValueError("The model returned an invalid content chunk.")
+                if delta:
+                    yield delta
+    finally:
+        try:
+            close = getattr(stream, "close", None)
+            if callable(close):
+                await run_in_threadpool(close)
+        finally:
+            model_lock.release()
+
+
 def generate_reply(messages: list[dict[str, str]]) -> str:
     with model_lock:
         llm = app.state.llm
@@ -358,6 +407,38 @@ def generate_reply(messages: list[dict[str, str]]) -> str:
     return content.strip()
 
 
+async def prepare_chat(
+    request: ChatRequest,
+) -> tuple[list[dict[str, str]], str]:
+    messages = [
+        {
+            "role": "system",
+            "content": "あなたは永田です。親しみやすく自然なチャット口調でユーザーと会話してください。",
+        }
+    ]
+    if CHAT_CONTEXT_MODE == "conversation":
+        history = await get_conversation_messages(request.conversation_id)
+        messages.extend(
+            {
+                "role": "user" if message["sender"] == "user" else "assistant",
+                "content": message["content"],
+            }
+            for message in history[-40:]
+        )
+
+    user_created_at = await insert_conversation_message(
+        request.conversation_id,
+        "user",
+        request.message,
+    )
+    messages.append({"role": "user", "content": request.message})
+    return messages, user_created_at
+
+
+def sse_event(event: dict[str, str]) -> str:
+    return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     llm = app.state.llm
@@ -367,26 +448,7 @@ async def chat(request: ChatRequest):
             detail=app.state.model_error or "モデルを読み込めませんでした。",
         )
 
-    history = await get_conversation_messages(request.conversation_id)
-    user_created_at = await insert_conversation_message(
-        request.conversation_id,
-        "user",
-        request.message,
-    )
-    messages = [
-        {
-            "role": "system",
-            "content": "あなたは永田です。親しみやすく自然なチャット口調でユーザーと会話してください。",
-        }
-    ]
-    messages.extend(
-        {
-            "role": "user" if message["sender"] == "user" else "assistant",
-            "content": message["content"],
-        }
-        for message in history[-40:]
-    )
-    messages.append({"role": "user", "content": request.message})
+    messages, user_created_at = await prepare_chat(request)
 
     try:
         reply = await run_in_threadpool(generate_reply, messages)
@@ -414,3 +476,65 @@ async def chat(request: ChatRequest):
         "user_created_at": user_created_at,
         "assistant_created_at": assistant_created_at,
     }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(request: ChatRequest):
+    if app.state.llm is None:
+        raise HTTPException(
+            status_code=503,
+            detail=app.state.model_error or "モデルを読み込めませんでした。",
+        )
+
+    messages, _ = await prepare_chat(request)
+
+    async def events():
+        reply_parts = []
+        try:
+            async for text in stream_model_reply(messages):
+                reply_parts.append(text)
+                yield sse_event({"type": "token", "text": text})
+            reply = "".join(reply_parts).strip()
+            if not reply:
+                raise ValueError("The model returned an empty response.")
+        except Exception:
+            logger.exception("Local model streaming failed")
+            yield sse_event(
+                {
+                    "type": "error",
+                    "detail": "メッセージは保存されましたが、モデルの応答生成に失敗しました。",
+                }
+            )
+            return
+
+        try:
+            assistant_created_at = await insert_conversation_message(
+                request.conversation_id,
+                "assistant",
+                reply,
+            )
+        except HTTPException:
+            logger.exception("Could not save streamed assistant response")
+            yield sse_event(
+                {
+                    "type": "error",
+                    "detail": "応答は生成されましたが、Supabaseへの保存に失敗しました。",
+                }
+            )
+            return
+
+        yield sse_event(
+            {
+                "type": "done",
+                "assistant_created_at": assistant_created_at,
+            }
+        )
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )

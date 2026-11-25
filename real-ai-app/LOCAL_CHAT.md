@@ -66,6 +66,14 @@ the repository's `models/` directory. The displayed model name comes from its
 parent directory. Only one model is kept loaded; switching closes the current
 model before loading the selected one. Refresh the page after adding new GGUF
 files so they appear in the selector.
+Assistant replies stream into the message bubble as the model generates them;
+the bubble shows `考え中...` until the first text arrives.
+
+By default, each reply uses only the current message and system prompt. Earlier
+messages remain visible and stored, but are not sent to the model. To restore
+the previous conversation-context behavior later, set
+`LUCA_CHAT_CONTEXT_MODE=conversation` in `.env` and restart the server. The
+default is `single-turn`.
 
 ## Message storage
 

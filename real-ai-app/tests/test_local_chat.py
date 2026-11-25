@@ -21,6 +21,13 @@ class FakeModel:
         self.messages = messages
         if self.fail:
             raise RuntimeError("model failure")
+        if kwargs.get("stream"):
+            return iter(
+                [
+                    {"choices": [{"delta": {"content": "こん"}}]},
+                    {"choices": [{"delta": {"content": "にちは！"}}]},
+                ]
+            )
         return {"choices": [{"message": {"content": "こんにちは！"}}]}
 
     def close(self):
@@ -48,7 +55,9 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             "model_error",
             None,
         )
+        self.original_context_mode = local_chat.CHAT_CONTEXT_MODE
         local_chat.app.state.model_path = local_chat.MODEL_PATH
+        local_chat.CHAT_CONTEXT_MODE = "single-turn"
         local_chat.SUPABASE_URL = "https://example.supabase.co"
         local_chat.SUPABASE_SECRET_KEY = "test-key"
 
@@ -60,6 +69,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         local_chat.app.state.model_path = self.original_model_path
         local_chat.app.state.model_device = self.original_model_device
         local_chat.app.state.model_error = self.original_model_error
+        local_chat.CHAT_CONTEXT_MODE = self.original_context_mode
 
     async def test_chat_loads_history_and_persists_both_messages(self):
         conversation_id = uuid.uuid4()
@@ -77,6 +87,7 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
         model = FakeModel()
         local_chat.supabase_request = fake_request
         local_chat.app.state.llm = model
+        local_chat.CHAT_CONTEXT_MODE = "conversation"
 
         result = await local_chat.chat(
             local_chat.ChatRequest(
@@ -93,6 +104,41 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
                 {"role": "user", "content": "前の発言"},
                 {"role": "assistant", "content": "前の返事"},
                 {"role": "user", "content": "今の発言"},
+            ],
+        )
+
+    async def test_single_turn_chat_does_not_read_or_send_previous_messages(self):
+        requests = []
+
+        async def fake_request(method, *, params=None, payload=None):
+            requests.append(method)
+            if method == "GET":
+                return [
+                    {"sender": "user", "content": "無視する過去の質問"},
+                    {"sender": "assistant", "content": "無視する過去の回答"},
+                ]
+            return [{"created_at": "2026-11-25T00:00:00+00:00"}]
+
+        model = FakeModel()
+        local_chat.supabase_request = fake_request
+        local_chat.app.state.llm = model
+
+        await local_chat.chat(
+            local_chat.ChatRequest(
+                conversation_id=uuid.uuid4(),
+                message="今回の質問",
+            )
+        )
+
+        self.assertEqual(requests, ["POST", "POST"])
+        self.assertEqual(
+            model.messages,
+            [
+                {
+                    "role": "system",
+                    "content": "あなたは永田です。親しみやすく自然なチャット口調でユーザーと会話してください。",
+                },
+                {"role": "user", "content": "今回の質問"},
             ],
         )
 
@@ -119,6 +165,37 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.status_code, 500)
         self.assertEqual([row["sender"] for row in stored], ["user"])
+
+    async def test_stream_chat_sends_incremental_chunks_and_persists_reply(self):
+        stored = []
+
+        async def fake_request(method, *, params=None, payload=None):
+            if method == "GET":
+                return []
+            stored.extend(payload)
+            return [{"created_at": "2026-11-25T00:00:00+00:00"}]
+
+        local_chat.supabase_request = fake_request
+        local_chat.app.state.llm = FakeModel()
+        response = await local_chat.chat_stream(
+            local_chat.ChatRequest(
+                conversation_id=uuid.uuid4(),
+                message="こんにちは",
+            )
+        )
+
+        events = []
+        async for chunk in response.body_iterator:
+            events.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+        body = "".join(events)
+
+        self.assertIn('"type": "token", "text": "こん"', body)
+        self.assertIn('"type": "token", "text": "にちは！"', body)
+        self.assertIn('"type": "done"', body)
+        self.assertEqual(
+            [(row["sender"], row["content"]) for row in stored],
+            [("user", "こんにちは"), ("assistant", "こんにちは！")],
+        )
 
     async def test_storage_requires_server_secret(self):
         local_chat.SUPABASE_SECRET_KEY = ""
