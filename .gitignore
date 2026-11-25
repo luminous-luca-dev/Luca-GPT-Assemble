@@ -1,3 +1,5 @@
 unsloth_compiled_cache
 Talking_data.jsonl
 models/
+.env
+__pycache__
