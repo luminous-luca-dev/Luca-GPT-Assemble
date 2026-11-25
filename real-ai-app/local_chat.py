@@ -125,6 +125,7 @@ model_lock = Lock()
 class ChatRequest(BaseModel):
     conversation_id: UUID
     message: str = Field(min_length=1, max_length=4000)
+    use_context: bool | None = None
 
 
 class ModelSelectionRequest(BaseModel):
@@ -191,6 +192,11 @@ async def health():
 @app.post("/api/conversations")
 async def create_conversation():
     return {"conversation_id": str(uuid4())}
+
+
+@app.get("/api/settings")
+async def get_settings():
+    return {"default_context_enabled": CHAT_CONTEXT_MODE == "conversation"}
 
 
 @app.get("/api/models")
@@ -416,7 +422,10 @@ async def prepare_chat(
             "content": "あなたは永田です。親しみやすく自然なチャット口調でユーザーと会話してください。",
         }
     ]
-    if CHAT_CONTEXT_MODE == "conversation":
+    use_context = request.use_context
+    if use_context is None:
+        use_context = CHAT_CONTEXT_MODE == "conversation"
+    if use_context:
         history = await get_conversation_messages(request.conversation_id)
         messages.extend(
             {

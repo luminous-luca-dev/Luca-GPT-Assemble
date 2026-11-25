@@ -4,19 +4,26 @@ const messageInput = document.getElementById('message-input');
 const sendBtn = document.getElementById('send-btn');
 const modelStatus = document.getElementById('model-status');
 const modelSelect = document.getElementById('model-select');
+const settingsButton = document.getElementById('settings-button');
+const settingsDialog = document.getElementById('settings-dialog');
+const settingsClose = document.getElementById('settings-close');
+const contextToggle = document.getElementById('context-toggle');
+const settingsStatus = document.getElementById('settings-status');
 const errorBox = document.getElementById('chat-error');
 const conversationParam = new URLSearchParams(window.location.search).get('id');
 
 let conversationId = conversationParam;
 let chatReady = false;
+let settingsLoaded = false;
 let modelCount = 0;
 let isSending = false;
 let isSwitchingModel = false;
 
 function updateControls() {
-    sendBtn.disabled = !chatReady || isSending || isSwitchingModel;
+    sendBtn.disabled = !chatReady || !settingsLoaded || isSending || isSwitchingModel;
     messageInput.disabled = isSending || isSwitchingModel;
     modelSelect.disabled = modelCount === 0 || isSending || isSwitchingModel;
+    contextToggle.disabled = !settingsLoaded || isSending || isSwitchingModel;
 }
 
 function showError(message) {
@@ -172,6 +179,41 @@ async function loadModels() {
     updateControls();
 }
 
+async function loadSettings() {
+    const response = await fetch('/api/settings');
+    const result = await response.json();
+    if (!response.ok) {
+        throw new Error(result.detail || '設定を読み込めませんでした。');
+    }
+
+    let useContext = result.default_context_enabled === true;
+    try {
+        const savedSetting = window.localStorage.getItem('luca-chat-use-context');
+        if (savedSetting === 'true' || savedSetting === 'false') {
+            useContext = savedSetting === 'true';
+        }
+        settingsStatus.textContent = '設定はこのブラウザーに保存されます。';
+    } catch (error) {
+        settingsStatus.textContent = 'このブラウザーでは設定を保存できません。';
+    }
+    contextToggle.checked = useContext;
+    settingsLoaded = true;
+    updateControls();
+}
+
+function saveContextSetting() {
+    try {
+        window.localStorage.setItem(
+            'luca-chat-use-context',
+            String(contextToggle.checked),
+        );
+        settingsStatus.textContent = '設定をこのブラウザーに保存しました。';
+    } catch (error) {
+        settingsStatus.textContent = '設定を保存できませんでした。';
+        showError('コンテキスト設定を保存できませんでした。');
+    }
+}
+
 async function switchModel() {
     if (!modelSelect.value || isSwitchingModel || isSending) return;
 
@@ -190,6 +232,7 @@ async function switchModel() {
         if (!response.ok) {
             throw new Error(result.detail || 'モデルを切り替えられませんでした。');
         }
+        settingsStatus.textContent = `${result.model} に切り替えました。`;
         await checkModel();
     } catch (error) {
         showError(error.message);
@@ -260,7 +303,11 @@ async function sendMessage(event) {
         const response = await fetch('/api/chat/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ conversation_id: conversationId, message: text }),
+            body: JSON.stringify({
+                conversation_id: conversationId,
+                message: text,
+                use_context: contextToggle.checked,
+            }),
         });
         if (!response.ok) {
             const result = await response.json();
@@ -282,6 +329,12 @@ async function sendMessage(event) {
 
 messageForm.addEventListener('submit', sendMessage);
 modelSelect.addEventListener('change', switchModel);
+settingsButton.addEventListener('click', () => settingsDialog.showModal());
+settingsClose.addEventListener('click', () => settingsDialog.close());
+contextToggle.addEventListener('change', saveContextSetting);
+settingsDialog.addEventListener('click', (event) => {
+    if (event.target === settingsDialog) settingsDialog.close();
+});
 
 messageInput.addEventListener('input', () => {
     messageInput.style.height = 'auto';
@@ -299,6 +352,10 @@ async function init() {
     await Promise.all([
         checkModel(),
         loadModels().catch((error) => showError(error.message)),
+        loadSettings().catch((error) => {
+            settingsStatus.textContent = error.message;
+            showError(error.message);
+        }),
         loadHistory().catch((error) => showError(error.message)),
     ]);
 }

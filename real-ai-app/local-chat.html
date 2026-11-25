@@ -16,13 +16,12 @@
                 <div class="header-copy">
                     <h1 class="room-name">Chat-NGT</h1>
                     <p id="model-status" role="status">ローカルモデルに接続中...</p>
-                    <label class="sr-only" for="model-select">使用モデル</label>
-                    <select id="model-select" aria-label="使用モデル" disabled>
-                        <option>モデルを読み込み中...</option>
-                    </select>
                 </div>
             </div>
-            <span class="local-badge"><i class="fa-solid fa-desktop"></i> LOCAL</span>
+            <button id="settings-button" type="button" aria-label="設定を開く"
+                aria-haspopup="dialog" aria-controls="settings-dialog">
+                <i class="fa-solid fa-gear" aria-hidden="true"></i>
+            </button>
         </header>
 
         <section id="chat-timeline" aria-label="チャット履歴" aria-live="polite">
@@ -43,6 +42,34 @@
             <p class="footer-note">より性能を上げるため会話は保存されます</p>
         </footer>
     </main>
+    <dialog id="settings-dialog" aria-labelledby="settings-title">
+        <div class="settings-header">
+            <h2 id="settings-title">設定</h2>
+            <button id="settings-close" type="button" aria-label="設定を閉じる">
+                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+            </button>
+        </div>
+        <div class="settings-content">
+            <div class="settings-field">
+                <label for="model-select">使用モデル</label>
+                <select id="model-select" disabled>
+                    <option>モデルを読み込み中...</option>
+                </select>
+                <small class="settings-help">切り替えたモデルは、このサーバーの全接続で使用されます。</small>
+            </div>
+            <label class="context-setting" for="context-toggle">
+                <span class="context-copy">
+                    <span class="settings-label">過去の会話を参照する</span>
+                    <small>オフの場合、今回の質問だけで回答します。この設定はこのブラウザーに保存されます。</small>
+                </span>
+                <input id="context-toggle" type="checkbox" disabled>
+            </label>
+            <p id="settings-status" role="status">設定を読み込み中...</p>
+            <div class="settings-footer">
+                <span class="local-badge"><i class="fa-solid fa-desktop" aria-hidden="true"></i> LOCAL</span>
+            </div>
+        </div>
+    </dialog>
     <script src="/local-chat.js"></script>
 </body>
 </html>

@@ -61,19 +61,20 @@ Relative model paths are resolved from the repository root.
 
 ## Switching models
 
-Use the model selector in the chat header to switch between GGUF files under
-the repository's `models/` directory. The displayed model name comes from its
-parent directory. Only one model is kept loaded; switching closes the current
-model before loading the selected one. Refresh the page after adding new GGUF
-files so they appear in the selector.
+Open the gear button in the chat header to access settings. There you can
+switch between GGUF files under the repository's `models/` directory; the
+displayed model name comes from its parent directory. Only one model is kept
+loaded, and switching models affects all clients connected to this server.
+Refresh the page after adding new GGUF files so they appear in the selector.
 Assistant replies stream into the message bubble as the model generates them;
 the bubble shows `考え中...` until the first text arrives.
 
-By default, each reply uses only the current message and system prompt. Earlier
-messages remain visible and stored, but are not sent to the model. To restore
-the previous conversation-context behavior later, set
-`LUCA_CHAT_CONTEXT_MODE=conversation` in `.env` and restart the server. The
-default is `single-turn`.
+The settings dialog also lets each browser choose whether earlier messages in
+the current conversation are included in the model prompt. This choice is
+saved in that browser; messages remain visible and stored either way. By
+default, only the current message and system prompt are sent. The server
+default can be changed to conversation mode with
+`LUCA_CHAT_CONTEXT_MODE=conversation` in `.env`.
 
 ## Message storage
 

@@ -142,6 +142,36 @@ class LocalChatTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_chat_can_enable_context_per_request(self):
+        async def fake_request(method, *, params=None, payload=None):
+            if method == "GET":
+                return [
+                    {"sender": "user", "content": "前の質問"},
+                    {"sender": "assistant", "content": "前の回答"},
+                ]
+            return [{"created_at": "2026-11-25T00:00:00+00:00"}]
+
+        model = FakeModel()
+        local_chat.supabase_request = fake_request
+        local_chat.app.state.llm = model
+
+        await local_chat.chat(
+            local_chat.ChatRequest(
+                conversation_id=uuid.uuid4(),
+                message="今回の質問",
+                use_context=True,
+            )
+        )
+
+        self.assertEqual(
+            model.messages[-3:],
+            [
+                {"role": "user", "content": "前の質問"},
+                {"role": "assistant", "content": "前の回答"},
+                {"role": "user", "content": "今回の質問"},
+            ],
+        )
+
     async def test_model_failure_leaves_the_user_message_saved(self):
         stored = []
 
